@@ -6,6 +6,7 @@ describe("vime.config.merge", function()
     assert.are.equal("<C-j>", c.keymaps.toggle)
     assert.are.equal("<Space>", c.keymaps.convert)
     assert.are.equal("<C-n>", c.keymaps.next_candidate)
+    assert.are.equal("<F10>", c.keymaps.alphabet)
   end)
 
   it("overrides only the specified keys and keeps the rest", function()

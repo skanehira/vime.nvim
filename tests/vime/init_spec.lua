@@ -162,6 +162,24 @@ describe("vime end-to-end", function()
     assert.is_false(vime.is_enabled())
     assert.are.equal("わたし", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
   end)
+
+  it("converts the preedit to lowercase letters on F10", function()
+    vime.setup({ anthy = { lib = LIB } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    vime.toggle()
+    for ch in ("foo"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.are.equal("ふぉお", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vime.on_alphabet() -- F10: 入力したローマ字(英小文字)で確定
+    assert.are.equal("foo", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vime.toggle()
+  end)
 end)
 
 describe("vime candidate popup", function()

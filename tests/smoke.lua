@@ -125,5 +125,12 @@ do
   check("F7カタカナ(キョウ)", (lines(buf)[1] or "") == "キョウ")
 end
 
+-- 12) F10 で英小文字確定(foo → ふぉお → foo)
+do
+  local buf = reset()
+  feed("i<C-j>foo<F10><Esc>")
+  check("F10英小文字(foo)", (lines(buf)[1] or "") == "foo")
+end
+
 print("==== smoke results ====")
 for _, r in ipairs(results) do print(r) end
