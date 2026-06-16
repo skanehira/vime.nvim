@@ -20,6 +20,7 @@ describe("vime.keymap", function()
       convert = function() calls.convert = true end,
       commit = noop, cancel = noop, backspace = noop,
       next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
+      next_candidate = noop, prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -43,6 +44,7 @@ describe("vime.keymap", function()
       convert = noop, commit = noop, cancel = noop,
       backspace = function() calls.backspace = true end,
       next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
+      next_candidate = noop, prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -63,9 +65,33 @@ describe("vime.keymap", function()
     local handlers = {
       input = noop, convert = noop, commit = noop, cancel = noop, backspace = noop,
       next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
+      next_candidate = noop, prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
     keymap.detach(buf)
     assert.is_nil(find_map(buf, "a"))
+  end)
+
+  it("maps C-n/C-p to candidate navigation", function()
+    local buf = api.nvim_create_buf(false, true)
+    local calls = {}
+    local function noop() end
+    local handlers = {
+      input = noop, convert = noop, commit = noop, cancel = noop, backspace = noop,
+      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
+      next_candidate = function() calls.next = true end,
+      prev_candidate = function() calls.prev = true end,
+    }
+    keymap.attach(buf, config.merge(nil), handlers)
+
+    local cn = find_map(buf, "<C-N>") or find_map(buf, "<C-n>")
+    assert.is_not_nil(cn)
+    cn.callback()
+    assert.is_true(calls.next)
+
+    local cp = find_map(buf, "<C-P>") or find_map(buf, "<C-p>")
+    assert.is_not_nil(cp)
+    cp.callback()
+    assert.is_true(calls.prev)
   end)
 end)

@@ -62,4 +62,24 @@ describe("vime.ui popup", function()
     ui.close_popup()
     assert.is_false(api.nvim_win_is_valid(win))
   end)
+
+  it("highlights the selected candidate line", function()
+    local win = ui.show_popup({ "a: 今日は", "s: きょうは", "d: 京" }, 2)
+    local buf = api.nvim_win_get_buf(win)
+    local marks = api.nvim_buf_get_extmarks(buf, ui.namespace(), 0, -1, { details = true })
+    local sel
+    for _, m in ipairs(marks) do
+      if m[4].line_hl_group == "PmenuSel" then sel = m end
+    end
+    assert.is_not_nil(sel)
+    assert.are.equal(1, sel[2]) -- 選択中(2番目)= 0-based row 1 をハイライト
+    ui.close_popup()
+  end)
+
+  it("opens the popup with a high zindex so it stays above other floats", function()
+    local win = ui.show_popup({ "今日", "京都" }, 1)
+    local z = api.nvim_win_get_config(win).zindex
+    assert.is_truthy(z and z >= 200)
+    ui.close_popup()
+  end)
 end)

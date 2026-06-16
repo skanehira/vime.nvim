@@ -117,6 +117,24 @@ describe("vime.session CONVERTING (real anthy)", function()
     assert.are.equal(second, s:segments().list[1])
   end)
 
+  it("cycles candidates backward and wraps to the last", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:start_conversion()
+    local last = s:candidates()[#s:candidates()] -- 注目文節の末尾候補
+    s:prev_candidate()                            -- 先頭(1)から前へ → 末尾へ wrap
+    assert.are.equal(last, s:segments().list[1])
+  end)
+
+  it("reports the selected candidate index of the focused segment", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:start_conversion()
+    assert.are.equal(1, s:current_candidate_index()) -- 初期は先頭候補
+    s:next_candidate()
+    assert.are.equal(2, s:current_candidate_index())
+  end)
+
   it("moves the focused segment with clamping", function()
     local s = new()
     type_in(s, "kyouhaii") -- 2文節
