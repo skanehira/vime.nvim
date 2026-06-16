@@ -244,4 +244,21 @@ describe("vime.romaji.to_kana with custom table", function()
     assert.are.equal("きょう", romaji.to_kana("kyou", nil))
     assert.are.equal("きょう", romaji.to_kana("kyou")) -- 引数省略でも同じ
   end)
+
+  it("prefers the custom table over hatsuon/sokuon look-ahead", function()
+    -- ACT 等で `nh`/`tt`/`ss` のような既定 look-ahead と衝突する打鍵を
+    -- カスタムテーブルで上書きできること(撥音/促音より先にテーブルが効く)。
+    local custom = {
+      nha = "にゃ", -- n+子音 だが撥音にせずテーブル優先
+      tt = "ちゅう", -- 同子音連続だが促音にせずテーブル優先
+      ss = "しょう",
+      ["'"] = "っ", -- ACT の促音キー
+    }
+    assert.are.equal("にゃ", romaji.to_kana("nha", custom))
+    assert.are.equal("ちゅう", romaji.to_kana("tt", custom))
+    assert.are.equal("しょう", romaji.to_kana("ss", custom))
+    -- ACT 風: ka'ta → か + っ + ta(table 未定義) → "かっta"
+    custom.ka = "か"
+    assert.are.equal("かっta", romaji.to_kana("ka'ta", custom))
+  end)
 end)

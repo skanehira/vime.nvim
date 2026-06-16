@@ -228,7 +228,17 @@ end
 
 -- ローマ字列をひらがなへ変換する。大文字は小文字化して扱う。
 -- custom_table 省略時は wapuro(M.default_table)。act 等の独自配列を使うときに渡す。
--- 撥音 ん・促音 っ の look-ahead と最長一致のロジック自体はテーブル非依存で共通。
+--
+-- 評価順序:
+--   1. テーブル最長一致 (4→1 文字)
+--   2. 撥音 ん の look-ahead (c == 'n')
+--   3. 促音 っ の look-ahead (同子音連続 / tch)
+--   4. 未知文字は素通し
+--
+-- テーブルを先に試すのは、ACT のような独自配列で「nh」「th」「tt」「ss」など
+-- 既定の撥音/促音ルールと衝突するキー列を、テーブルで上書きできるようにするため。
+-- 既定 wapuro テーブルでも、最長一致でマッチしないシーケンスのみ撥音/促音判定へ
+-- 落ちるので、既存の挙動(かんじ・けっか・まっちゃ等)は維持される。
 function M.to_kana(s, custom_table)
   local tbl = custom_table or T
   s = s:lower()
@@ -236,7 +246,23 @@ function M.to_kana(s, custom_table)
   local i, n = 1, #s
   while i <= n do
     local c = s:sub(i, i)
-    -- 撥音 ん
+    -- 1. テーブル最長一致 (4→1。4 は xtsu/ltsu のみ)
+    do
+      local matched = false
+      for len = 4, 1, -1 do
+        local seg = s:sub(i, i + len - 1)
+        if tbl[seg] then
+          out[#out + 1] = tbl[seg]
+          i = i + len
+          matched = true
+          break
+        end
+      end
+      if matched then
+        goto cont
+      end
+    end
+    -- 2. 撥音 ん
     if c == "n" then
       local nx = s:sub(i + 1, i + 1)
       if nx == "'" then
@@ -262,14 +288,14 @@ function M.to_kana(s, custom_table)
         i = i + 1
         goto cont
       elseif is_vowel(nx) or nx == "y" then
-        -- fall through (na/ni/nya...)
+        -- na/ni/nya... テーブルに無いので未知文字フォールバックへ
       else
         out[#out + 1] = "ん"
         i = i + 1
         goto cont
       end
     end
-    -- 促音 っ (同子音の連続 / tch)
+    -- 3. 促音 っ (同子音の連続 / tch)
     if is_consonant(c) and c ~= "n" then
       local nx = s:sub(i + 1, i + 1)
       if nx == c then
@@ -283,23 +309,9 @@ function M.to_kana(s, custom_table)
         goto cont
       end
     end
-    -- テーブル最長一致 (4→1。4 は xtsu/ltsu のみ)
-    do
-      local matched = false
-      for len = 4, 1, -1 do
-        local seg = s:sub(i, i + len - 1)
-        if tbl[seg] then
-          out[#out + 1] = tbl[seg]
-          i = i + len
-          matched = true
-          break
-        end
-      end
-      if not matched then
-        out[#out + 1] = c
-        i = i + 1 -- 未知文字はそのまま
-      end
-    end
+    -- 4. 未知文字はそのまま
+    out[#out + 1] = c
+    i = i + 1
     ::cont::
   end
   return table.concat(out)
