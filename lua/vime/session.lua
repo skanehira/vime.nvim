@@ -15,6 +15,7 @@ function M.new(anthy_module)
     anthy = nil,           -- 生成した anthy セッション(変換中に再利用)
     _state = "composing",
     romaji = "",
+    _latin = false,        -- 英字ラン(大文字始まり。変換せず生の英字)
     _segments = nil,
     seg_index = 1,
     choices = {},
@@ -25,7 +26,15 @@ function Session:state()
   return self._state
 end
 
+-- 英字ラン中か(controller が確定の仕方を変えるのに使う)。
+function Session:is_latin()
+  return self._latin
+end
+
 function Session:preedit()
+  if self._latin then
+    return self.romaji -- 生の英字(大小保持)
+  end
   return romaji.to_kana(self.romaji)
 end
 
@@ -33,17 +42,38 @@ end
 local function reset_composing(self)
   self._state = "composing"
   self.romaji = ""
+  self._latin = false
   self._segments = nil
   self.seg_index = 1
   self.choices = {}
 end
 
--- 1文字入力。converting 中は現変換を自動確定し、確定文字列を返す。
+-- 新しい入力ランを ch で開始する。大文字始まりなら英字ラン。
+local function start_input(self, ch)
+  self.romaji = ch
+  self._latin = ch:match("%u") ~= nil
+end
+
+-- 1文字入力。converting 中・かな未確定中に大文字が来た場合は現内容を確定し、確定文字列を返す。
 function Session:input(ch)
   if self._state == "converting" then
     local confirmed = self:commit()
-    self.romaji = ch
+    start_input(self, ch)
     return confirmed
+  end
+  if self._latin then
+    self.romaji = self.romaji .. ch -- 英字ラン継続(変換しない)
+    return ""
+  end
+  if ch:match("%u") then
+    if self.romaji ~= "" then
+      -- かな未確定中に大文字 → かなを確定してから英字ラン開始
+      local confirmed = self:commit()
+      start_input(self, ch)
+      return confirmed
+    end
+    start_input(self, ch) -- 空から英字ラン開始
+    return ""
   end
   self.romaji = self.romaji .. ch
   return ""
@@ -67,6 +97,13 @@ function Session:backspace()
   if self._state ~= "composing" then
     return
   end
+  if self._latin then
+    self.romaji = self.romaji:sub(1, #self.romaji - 1) -- 英字は1バイト=1文字
+    if self.romaji == "" then
+      self._latin = false
+    end
+    return
+  end
   local before = uchars(romaji.to_kana(self.romaji))
   while #self.romaji > 0 do
     self.romaji = self.romaji:sub(1, #self.romaji - 1)
@@ -81,6 +118,9 @@ end
 function Session:start_conversion()
   if self._state ~= "composing" then
     return
+  end
+  if self._latin then
+    return -- 英字ランは変換しない
   end
   local yomi = self:preedit()
   if yomi == "" then

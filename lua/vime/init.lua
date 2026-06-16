@@ -145,6 +145,11 @@ function M.on_convert()
   end
   sync_anchor()
   if st.session:state() == "composing" then
+    if st.session:is_latin() then
+      st.session:input(" ") -- 英字ラン中はスペースも英字の一部(確定は Enter のみ)
+      render()
+      return
+    end
     if st.session:preedit() == "" then
       insert_literal(" ") -- 未確定なし: 通常のスペース
       return
