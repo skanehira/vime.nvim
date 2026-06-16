@@ -17,13 +17,13 @@ local T = {
   ma = "ま", mi = "み", mu = "む", me = "め", mo = "も",
   ya = "や", yu = "ゆ", yo = "よ",
   ra = "ら", ri = "り", ru = "る", re = "れ", ro = "ろ",
-  wa = "わ", wo = "を", wi = "うぃ", we = "うぇ",
+  wa = "わ", wo = "を", wi = "うぃ", wu = "う", we = "うぇ",
   kya = "きゃ", kyu = "きゅ", kyo = "きょ",
   gya = "ぎゃ", gyu = "ぎゅ", gyo = "ぎょ",
   sya = "しゃ", syu = "しゅ", syo = "しょ",
   sha = "しゃ", shu = "しゅ", sho = "しょ", she = "しぇ",
   ja = "じゃ", ju = "じゅ", jo = "じょ", je = "じぇ",
-  jya = "じゃ", jyu = "じゅ", jyo = "じょ",
+  jya = "じゃ", jyi = "じぃ", jyu = "じゅ", jye = "じぇ", jyo = "じょ",
   zya = "じゃ", zyu = "じゅ", zyo = "じょ",
   tya = "ちゃ", tyu = "ちゅ", tyo = "ちょ",
   cha = "ちゃ", chu = "ちゅ", cho = "ちょ", che = "ちぇ",
@@ -35,15 +35,46 @@ local T = {
   pya = "ぴゃ", pyu = "ぴゅ", pyo = "ぴょ",
   mya = "みゃ", myu = "みゅ", myo = "みょ",
   rya = "りゃ", ryu = "りゅ", ryo = "りょ",
-  fa = "ふぁ", fi = "ふぃ", fe = "ふぇ", fo = "ふぉ",
+  vu = "ゔ", -- ゔ単体。ふぁ行/ゔ行/外来音/拗音グライドは下部の展開規則(expand)で生成する
   xa = "ぁ", xi = "ぃ", xu = "ぅ", xe = "ぇ", xo = "ぉ",
   la = "ぁ", li = "ぃ", lu = "ぅ", le = "ぇ", lo = "ぉ",
-  xya = "ゃ", xyu = "ゅ", xyo = "ょ",
-  xtu = "っ", ltu = "っ",
+  xya = "ゃ", xyu = "ゅ", xyo = "ょ", lya = "ゃ", lyu = "ゅ", lyo = "ょ",
+  xtu = "っ", ltu = "っ", xtsu = "っ", ltsu = "っ",
+  xwa = "ゎ", lwa = "ゎ", xn = "ん", ye = "いぇ",
   ["-"] = "ー",
   -- 句読点・括弧(日本語IME標準)
   [","] = "、", ["."] = "。", ["/"] = "・", ["["] = "「", ["]"] = "」",
 }
+
+-- 外来音・拗音の系統的な展開を機械生成する(穴を手追加し続けないため)。
+-- 「子音グライド + 母音」→「ベースかな + 小書き母音」。skip の母音はベース音が別にあるので生成しない。
+local SMALL_A = { a = "ぁ", i = "ぃ", u = "ぅ", e = "ぇ", o = "ぉ" } -- 小書きあ行 (ふぁ/つぁ/くぁ…)
+local SMALL_Y = { a = "ゃ", i = "ぃ", u = "ゅ", e = "ぇ", o = "ょ" } -- 拗音 (てゃ/でゃ/ふゃ…)
+
+local function expand(prefix, base, small, skip)
+  for _, v in ipairs({ "a", "i", "u", "e", "o" }) do
+    if not (skip and skip[v]) then
+      T[prefix .. v] = base .. small[v]
+    end
+  end
+end
+
+-- 小書きあ行系(外来音)。f/v/ts は u スロットがベース音(ふ/ゔ/つ)なので skip。
+expand("f", "ふ", SMALL_A, { u = true })
+expand("v", "ゔ", SMALL_A, { u = true })
+expand("ts", "つ", SMALL_A, { u = true })
+expand("wh", "う", SMALL_A, { u = true })
+expand("kw", "く", SMALL_A)
+expand("gw", "ぐ", SMALL_A)
+expand("tw", "と", SMALL_A)
+expand("dw", "ど", SMALL_A)
+expand("q", "く", SMALL_A)
+expand("qw", "く", SMALL_A)
+-- 拗音系(小書きや行)
+expand("th", "て", SMALL_Y)
+expand("dh", "で", SMALL_Y)
+expand("fy", "ふ", SMALL_Y)
+expand("vy", "ゔ", SMALL_Y)
 
 local function is_consonant(ch)
   return ch:match("[bcdfghjkmpqrstvwxyz]") ~= nil
@@ -92,10 +123,10 @@ function M.to_kana(s)
         out[#out + 1] = "っ"; i = i + 1; goto cont
       end
     end
-    -- テーブル最長一致 (3→2→1)
+    -- テーブル最長一致 (4→1。4 は xtsu/ltsu のみ)
     do
       local matched = false
-      for len = 3, 1, -1 do
+      for len = 4, 1, -1 do
         local seg = s:sub(i, i + len - 1)
         if T[seg] then
           out[#out + 1] = T[seg]; i = i + len; matched = true; break
