@@ -234,6 +234,18 @@ function M.on_katakana()
   end
 end
 
+-- F10: 入力したローマ字を英小文字として確定する(例: ふぉお → foo)。
+function M.on_alphabet()
+  if not st.enabled then
+    return
+  end
+  sync_anchor()
+  local letters = st.session:commit_alphabet()
+  if letters ~= "" then
+    finalize(letters)
+  end
+end
+
 -- C-w(単語削除)/C-u(行削除)。未確定があれば IME のキャンセル、無ければ素通し。
 function M.on_kill(key)
   if not st.enabled then
@@ -322,6 +334,7 @@ local function handlers()
     next_candidate = M.on_next_candidate,
     prev_candidate = M.on_prev_candidate,
     katakana = M.on_katakana,
+    alphabet = M.on_alphabet,
     kill = M.on_kill,
   }
 end

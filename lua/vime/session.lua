@@ -258,6 +258,21 @@ function Session:commit_katakana()
   return romaji.to_katakana(reading)
 end
 
+-- 入力したローマ字(英小文字)をそのまま確定する文字列を返す(例: ふぉお → foo)。
+-- composing/converting どちらでも romaji バッファで動く。かな入力中の romaji は常に
+-- 小文字なのでそのまま英小文字になる。英字ラン/空なら "" を返す。
+function Session:commit_alphabet()
+  if self._latin then
+    return ""
+  end
+  if self.romaji == "" then
+    return ""
+  end
+  local text = self.romaji
+  reset_composing(self)
+  return text
+end
+
 -- 取消。converting なら変換前のかな(composing)へ戻す。composing なら未確定を破棄。
 function Session:cancel()
   if self._state == "converting" then

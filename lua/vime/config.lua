@@ -17,6 +17,7 @@ M.defaults = {
     next_candidate = "<C-n>",
     prev_candidate = "<C-p>",
     katakana = "<F7>",
+    alphabet = "<F10>",
   },
 }
 
