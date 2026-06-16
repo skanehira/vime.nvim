@@ -110,5 +110,12 @@ do
   check("英字ラン中スペース(Chrome devtool)", (lines(buf)[1] or "") == "Chrome devtool")
 end
 
+-- 11) F7 でカタカナ確定(kyou → キョウ)
+do
+  local buf = reset()
+  feed("i<C-j>kyou<F7><Esc>")
+  check("F7カタカナ(キョウ)", (lines(buf)[1] or "") == "キョウ")
+end
+
 print("==== smoke results ====")
 for _, r in ipairs(results) do print(r) end

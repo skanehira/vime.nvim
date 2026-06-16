@@ -178,6 +178,16 @@ describe("vime.session CONVERTING", function()
     assert.are.equal("", s:preedit())
   end)
 
+  it("commits the reading as katakana even during conversion", function()
+    fake.set_result(FIXTURE)
+    local s = new()
+    type_in(s, "kyouhaii") -- 読み: きょうはいい
+    s:start_conversion()
+    assert.are.equal("キョウハイイ", s:commit_katakana())
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
+
   it("cancels conversion back to composing", function()
     local s = new()
     type_in(s, "kyou")

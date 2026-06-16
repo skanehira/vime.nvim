@@ -19,7 +19,7 @@ describe("vime.keymap", function()
       input = function(ch) calls.input = ch end,
       convert = function() calls.convert = true end,
       commit = noop, cancel = noop, backspace = noop,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop,
+      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -42,7 +42,7 @@ describe("vime.keymap", function()
       input = function(ch) calls.input = ch end,
       convert = noop, commit = noop, cancel = noop,
       backspace = function() calls.backspace = true end,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop,
+      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -62,7 +62,7 @@ describe("vime.keymap", function()
     local function noop() end
     local handlers = {
       input = noop, convert = noop, commit = noop, cancel = noop, backspace = noop,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop,
+      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
     keymap.detach(buf)

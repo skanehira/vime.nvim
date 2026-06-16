@@ -87,6 +87,13 @@ describe("vime.romaji.to_kana", function()
     })
   end)
 
+  it("converts hiragana to katakana (others unchanged)", function()
+    assert.are.equal("キョウ", romaji.to_katakana("きょう"))
+    assert.are.equal("ファイル", romaji.to_katakana("ふぁいる"))
+    assert.are.equal("ヴ", romaji.to_katakana("ゔ"))
+    assert.are.equal("カー、A", romaji.to_katakana("かー、A")) -- ー/、/英字 はそのまま
+  end)
+
   it("converts the full target sentence", function()
     assert.are.equal("きょうはいいてんきだね", romaji.to_kana("kyouhaiitenkidane"))
   end)
