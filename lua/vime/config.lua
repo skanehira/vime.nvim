@@ -32,15 +32,15 @@ function M.lib_candidates()
   local ext = lib_ext()
   local names = { "libanthy-unicode." .. ext, "libanthy." .. ext } -- unicode を優先
   local dirs = {
-    vim.fn.expand("~/.local/lib"),       -- ソースビルド(--prefix=$HOME/.local)
+    vim.fn.expand("~/.local/lib"), -- ソースビルド(--prefix=$HOME/.local)
     vim.fn.expand("~/.nix-profile/lib"), -- nix profile install
-    "/run/current-system/sw/lib",        -- nix-darwin / NixOS
-    "/opt/homebrew/lib",                 -- macOS Homebrew
-    "/usr/local/lib",                    -- ソースビルド既定(prefix=/usr/local)
-    "/usr/lib",                          -- 一般
-    "/usr/lib64",                        -- Fedora
-    "/usr/lib/x86_64-linux-gnu",         -- Debian/Ubuntu amd64
-    "/usr/lib/aarch64-linux-gnu",        -- Debian/Ubuntu arm64
+    "/run/current-system/sw/lib", -- nix-darwin / NixOS
+    "/opt/homebrew/lib", -- macOS Homebrew
+    "/usr/local/lib", -- ソースビルド既定(prefix=/usr/local)
+    "/usr/lib", -- 一般
+    "/usr/lib64", -- Fedora
+    "/usr/lib/x86_64-linux-gnu", -- Debian/Ubuntu amd64
+    "/usr/lib/aarch64-linux-gnu", -- Debian/Ubuntu arm64
   }
   local list = {}
   for _, dir in ipairs(dirs) do

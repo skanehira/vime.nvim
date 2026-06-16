@@ -70,7 +70,7 @@ end
 do
   local buf = reset()
   feed("i<C-j>ka<Esc>") -- InsertLeave で か 確定、ノーマルモードへ
-  feed("x")             -- ノーマルモードのオペレータで削除
+  feed("x") -- ノーマルモードのオペレータで削除
   local l = lines(buf)[1] or ""
   check("Esc確定→ノーマルx削除", l == "")
 end
@@ -133,4 +133,6 @@ do
 end
 
 print("==== smoke results ====")
-for _, r in ipairs(results) do print(r) end
+for _, r in ipairs(results) do
+  print(r)
+end

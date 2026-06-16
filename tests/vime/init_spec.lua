@@ -241,7 +241,7 @@ describe("vime candidate popup", function()
     for ch in ("kyou"):gmatch(".") do
       vime.on_input(ch)
     end
-    vime.on_convert()        -- 変換開始(popup なし)
+    vime.on_convert() -- 変換開始(popup なし)
     vime.on_next_candidate() -- C-n → popup 表示
     assert.are.equal(1, floating_win_count())
   end)
@@ -257,7 +257,7 @@ describe("vime candidate popup", function()
     assert.are.equal(1, floating_win_count())
     vime.on_next_segment() -- 注目文節を移動 → popup が追従
     assert.are.equal(1, floating_win_count())
-    vime.on_expand()       -- 文節を伸長 → popup が追従
+    vime.on_expand() -- 文節を伸長 → popup が追従
     assert.are.equal(1, floating_win_count())
   end)
 
@@ -299,7 +299,7 @@ describe("vime candidate popup", function()
     -- 旧ラベル文字 "k" を入力 → ラベル選択ではなく確定して新規入力に回る
     vime.on_input("k")
     local line = api.nvim_buf_get_lines(buf, 0, 1, false)[1]
-    assert.are.equal("k", line:sub(-1))       -- 末尾は新規入力の k
+    assert.are.equal("k", line:sub(-1)) -- 末尾は新規入力の k
     assert.are.equal(0, floating_win_count()) -- 確定で popup は閉じる
   end)
 
@@ -307,7 +307,11 @@ describe("vime candidate popup", function()
     -- フローティングウィンドウ(AI 入力欄など)の中で入力するシナリオ
     local host_buf = api.nvim_create_buf(false, true)
     local host = api.nvim_open_win(host_buf, true, {
-      relative = "editor", row = 1, col = 1, width = 30, height = 6,
+      relative = "editor",
+      row = 1,
+      col = 1,
+      width = 30,
+      height = 6,
     })
     api.nvim_win_set_cursor(host, { 1, 0 })
     vime.toggle()

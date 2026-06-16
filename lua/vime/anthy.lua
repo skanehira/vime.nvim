@@ -8,7 +8,9 @@ local ANTHY_UTF8_ENCODING = 2
 
 local cdef_done = false
 local function ensure_cdef()
-  if cdef_done then return end
+  if cdef_done then
+    return
+  end
   ffi.cdef([[
     typedef void *anthy_context_t;
     int anthy_init(void);

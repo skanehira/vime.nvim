@@ -3,47 +3,172 @@
 local M = {}
 
 local T = {
-  a = "あ", i = "い", u = "う", e = "え", o = "お",
-  ka = "か", ki = "き", ku = "く", ke = "け", ko = "こ",
-  ga = "が", gi = "ぎ", gu = "ぐ", ge = "げ", go = "ご",
-  sa = "さ", si = "し", shi = "し", su = "す", se = "せ", so = "そ",
-  za = "ざ", zi = "じ", ji = "じ", zu = "ず", ze = "ぜ", zo = "ぞ",
-  ta = "た", ti = "ち", chi = "ち", tu = "つ", tsu = "つ", te = "て", to = "と",
-  da = "だ", di = "ぢ", du = "づ", de = "で", ["do"] = "ど",
-  na = "な", ni = "に", nu = "ぬ", ne = "ね", no = "の",
-  ha = "は", hi = "ひ", hu = "ふ", fu = "ふ", he = "へ", ho = "ほ",
-  ba = "ば", bi = "び", bu = "ぶ", be = "べ", bo = "ぼ",
-  pa = "ぱ", pi = "ぴ", pu = "ぷ", pe = "ぺ", po = "ぽ",
-  ma = "ま", mi = "み", mu = "む", me = "め", mo = "も",
-  ya = "や", yu = "ゆ", yo = "よ",
-  ra = "ら", ri = "り", ru = "る", re = "れ", ro = "ろ",
-  wa = "わ", wo = "を", wi = "うぃ", wu = "う", we = "うぇ",
-  kya = "きゃ", kyu = "きゅ", kyo = "きょ",
-  gya = "ぎゃ", gyu = "ぎゅ", gyo = "ぎょ",
-  sya = "しゃ", syu = "しゅ", syo = "しょ",
-  sha = "しゃ", shu = "しゅ", sho = "しょ", she = "しぇ",
-  ja = "じゃ", ju = "じゅ", jo = "じょ", je = "じぇ",
-  jya = "じゃ", jyi = "じぃ", jyu = "じゅ", jye = "じぇ", jyo = "じょ",
-  zya = "じゃ", zyu = "じゅ", zyo = "じょ",
-  tya = "ちゃ", tyu = "ちゅ", tyo = "ちょ",
-  cha = "ちゃ", chu = "ちゅ", cho = "ちょ", che = "ちぇ",
-  cya = "ちゃ", cyu = "ちゅ", cyo = "ちょ",
-  dya = "ぢゃ", dyu = "ぢゅ", dyo = "ぢょ",
-  nya = "にゃ", nyu = "にゅ", nyo = "にょ",
-  hya = "ひゃ", hyu = "ひゅ", hyo = "ひょ",
-  bya = "びゃ", byu = "びゅ", byo = "びょ",
-  pya = "ぴゃ", pyu = "ぴゅ", pyo = "ぴょ",
-  mya = "みゃ", myu = "みゅ", myo = "みょ",
-  rya = "りゃ", ryu = "りゅ", ryo = "りょ",
+  a = "あ",
+  i = "い",
+  u = "う",
+  e = "え",
+  o = "お",
+  ka = "か",
+  ki = "き",
+  ku = "く",
+  ke = "け",
+  ko = "こ",
+  ga = "が",
+  gi = "ぎ",
+  gu = "ぐ",
+  ge = "げ",
+  go = "ご",
+  sa = "さ",
+  si = "し",
+  shi = "し",
+  su = "す",
+  se = "せ",
+  so = "そ",
+  za = "ざ",
+  zi = "じ",
+  ji = "じ",
+  zu = "ず",
+  ze = "ぜ",
+  zo = "ぞ",
+  ta = "た",
+  ti = "ち",
+  chi = "ち",
+  tu = "つ",
+  tsu = "つ",
+  te = "て",
+  to = "と",
+  da = "だ",
+  di = "ぢ",
+  du = "づ",
+  de = "で",
+  ["do"] = "ど",
+  na = "な",
+  ni = "に",
+  nu = "ぬ",
+  ne = "ね",
+  no = "の",
+  ha = "は",
+  hi = "ひ",
+  hu = "ふ",
+  fu = "ふ",
+  he = "へ",
+  ho = "ほ",
+  ba = "ば",
+  bi = "び",
+  bu = "ぶ",
+  be = "べ",
+  bo = "ぼ",
+  pa = "ぱ",
+  pi = "ぴ",
+  pu = "ぷ",
+  pe = "ぺ",
+  po = "ぽ",
+  ma = "ま",
+  mi = "み",
+  mu = "む",
+  me = "め",
+  mo = "も",
+  ya = "や",
+  yu = "ゆ",
+  yo = "よ",
+  ra = "ら",
+  ri = "り",
+  ru = "る",
+  re = "れ",
+  ro = "ろ",
+  wa = "わ",
+  wo = "を",
+  wi = "うぃ",
+  wu = "う",
+  we = "うぇ",
+  kya = "きゃ",
+  kyu = "きゅ",
+  kyo = "きょ",
+  gya = "ぎゃ",
+  gyu = "ぎゅ",
+  gyo = "ぎょ",
+  sya = "しゃ",
+  syu = "しゅ",
+  syo = "しょ",
+  sha = "しゃ",
+  shu = "しゅ",
+  sho = "しょ",
+  she = "しぇ",
+  ja = "じゃ",
+  ju = "じゅ",
+  jo = "じょ",
+  je = "じぇ",
+  jya = "じゃ",
+  jyi = "じぃ",
+  jyu = "じゅ",
+  jye = "じぇ",
+  jyo = "じょ",
+  zya = "じゃ",
+  zyu = "じゅ",
+  zyo = "じょ",
+  tya = "ちゃ",
+  tyu = "ちゅ",
+  tyo = "ちょ",
+  cha = "ちゃ",
+  chu = "ちゅ",
+  cho = "ちょ",
+  che = "ちぇ",
+  cya = "ちゃ",
+  cyu = "ちゅ",
+  cyo = "ちょ",
+  dya = "ぢゃ",
+  dyu = "ぢゅ",
+  dyo = "ぢょ",
+  nya = "にゃ",
+  nyu = "にゅ",
+  nyo = "にょ",
+  hya = "ひゃ",
+  hyu = "ひゅ",
+  hyo = "ひょ",
+  bya = "びゃ",
+  byu = "びゅ",
+  byo = "びょ",
+  pya = "ぴゃ",
+  pyu = "ぴゅ",
+  pyo = "ぴょ",
+  mya = "みゃ",
+  myu = "みゅ",
+  myo = "みょ",
+  rya = "りゃ",
+  ryu = "りゅ",
+  ryo = "りょ",
   vu = "ゔ", -- ゔ単体。ふぁ行/ゔ行/外来音/拗音グライドは下部の展開規則(expand)で生成する
-  xa = "ぁ", xi = "ぃ", xu = "ぅ", xe = "ぇ", xo = "ぉ",
-  la = "ぁ", li = "ぃ", lu = "ぅ", le = "ぇ", lo = "ぉ",
-  xya = "ゃ", xyu = "ゅ", xyo = "ょ", lya = "ゃ", lyu = "ゅ", lyo = "ょ",
-  xtu = "っ", ltu = "っ", xtsu = "っ", ltsu = "っ",
-  xwa = "ゎ", lwa = "ゎ", xn = "ん", ye = "いぇ",
+  xa = "ぁ",
+  xi = "ぃ",
+  xu = "ぅ",
+  xe = "ぇ",
+  xo = "ぉ",
+  la = "ぁ",
+  li = "ぃ",
+  lu = "ぅ",
+  le = "ぇ",
+  lo = "ぉ",
+  xya = "ゃ",
+  xyu = "ゅ",
+  xyo = "ょ",
+  lya = "ゃ",
+  lyu = "ゅ",
+  lyo = "ょ",
+  xtu = "っ",
+  ltu = "っ",
+  xtsu = "っ",
+  ltsu = "っ",
+  xwa = "ゎ",
+  lwa = "ゎ",
+  xn = "ん",
+  ye = "いぇ",
   ["-"] = "ー",
   -- 句読点・括弧(日本語IME標準)
-  [","] = "、", ["."] = "。", ["/"] = "・", ["["] = "「", ["]"] = "」",
+  [","] = "、",
+  ["."] = "。",
+  ["/"] = "・",
+  ["["] = "「",
+  ["]"] = "」",
 }
 
 -- 外来音・拗音の系統的な展開を機械生成する(穴を手追加し続けないため)。
@@ -94,33 +219,47 @@ function M.to_kana(s)
     if c == "n" then
       local nx = s:sub(i + 1, i + 1)
       if nx == "'" then
-        out[#out + 1] = "ん"; i = i + 2; goto cont
+        out[#out + 1] = "ん"
+        i = i + 2
+        goto cont
       elseif nx == "n" then
         -- "nn" の曖昧性: 2つ目の n の次を見て分岐 (実IME準拠)
         local nx2 = s:sub(i + 2, i + 2)
         if is_vowel(nx2) or nx2 == "y" then
           -- onna/konnichi: 2つ目の n はな行/にゃを始める → n を1つだけ ん にする
-          out[#out + 1] = "ん"; i = i + 1; goto cont
+          out[#out + 1] = "ん"
+          i = i + 1
+          goto cont
         else
           -- tennki/末尾: nn → ん (子音前 or 末尾)
-          out[#out + 1] = "ん"; i = i + 2; goto cont
+          out[#out + 1] = "ん"
+          i = i + 2
+          goto cont
         end
       elseif nx == "" then
-        out[#out + 1] = "ん"; i = i + 1; goto cont
+        out[#out + 1] = "ん"
+        i = i + 1
+        goto cont
       elseif is_vowel(nx) or nx == "y" then
         -- fall through (na/ni/nya...)
       else
-        out[#out + 1] = "ん"; i = i + 1; goto cont
+        out[#out + 1] = "ん"
+        i = i + 1
+        goto cont
       end
     end
     -- 促音 っ (同子音の連続 / tch)
     if is_consonant(c) and c ~= "n" then
       local nx = s:sub(i + 1, i + 1)
       if nx == c then
-        out[#out + 1] = "っ"; i = i + 1; goto cont
+        out[#out + 1] = "っ"
+        i = i + 1
+        goto cont
       end
       if c == "t" and nx == "c" and s:sub(i + 2, i + 2) == "h" then
-        out[#out + 1] = "っ"; i = i + 1; goto cont
+        out[#out + 1] = "っ"
+        i = i + 1
+        goto cont
       end
     end
     -- テーブル最長一致 (4→1。4 は xtsu/ltsu のみ)
@@ -129,11 +268,15 @@ function M.to_kana(s)
       for len = 4, 1, -1 do
         local seg = s:sub(i, i + len - 1)
         if T[seg] then
-          out[#out + 1] = T[seg]; i = i + len; matched = true; break
+          out[#out + 1] = T[seg]
+          i = i + len
+          matched = true
+          break
         end
       end
       if not matched then
-        out[#out + 1] = c; i = i + 1 -- 未知文字はそのまま
+        out[#out + 1] = c
+        i = i + 1 -- 未知文字はそのまま
       end
     end
     ::cont::
@@ -152,11 +295,8 @@ function M.to_katakana(s)
       local cp = (b1 - 0xE0) * 0x1000 + (b2 - 0x80) * 0x40 + (b3 - 0x80)
       if cp >= 0x3041 and cp <= 0x3096 then
         cp = cp + 0x60
-        out[#out + 1] = string.char(
-          0xE0 + math.floor(cp / 0x1000),
-          0x80 + math.floor(cp / 0x40) % 0x40,
-          0x80 + cp % 0x40
-        )
+        out[#out + 1] =
+          string.char(0xE0 + math.floor(cp / 0x1000), 0x80 + math.floor(cp / 0x40) % 0x40, 0x80 + cp % 0x40)
       else
         out[#out + 1] = s:sub(i, i + 2)
       end

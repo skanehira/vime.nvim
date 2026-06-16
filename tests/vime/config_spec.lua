@@ -14,8 +14,8 @@ describe("vime.config.merge", function()
       keymaps = { toggle = "<C-l>" },
     })
     assert.are.equal("<C-l>", c.keymaps.toggle)
-    assert.are.equal("<Space>", c.keymaps.convert)        -- 既定維持
-    assert.are.equal("<C-p>", c.keymaps.prev_candidate)   -- 既定維持(deep merge)
+    assert.are.equal("<Space>", c.keymaps.convert) -- 既定維持
+    assert.are.equal("<C-p>", c.keymaps.prev_candidate) -- 既定維持(deep merge)
   end)
 end)
 

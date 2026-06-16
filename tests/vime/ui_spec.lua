@@ -36,10 +36,12 @@ describe("vime.ui highlight", function()
     -- 注目セグメントの reverse マークを探す
     local seg
     for _, m in ipairs(marks) do
-      if m[4].hl_group == "VimeSegment" then seg = m end
+      if m[4].hl_group == "VimeSegment" then
+        seg = m
+      end
     end
     assert.is_not_nil(seg)
-    assert.are.equal(9, seg[3])           -- start_col(byte) = #"今日は" = 9
+    assert.are.equal(9, seg[3]) -- start_col(byte) = #"今日は" = 9
     assert.are.equal(9 + #"いい", seg[4].end_col) -- 9 + 6 = 15
   end)
 
@@ -69,7 +71,9 @@ describe("vime.ui popup", function()
     local marks = api.nvim_buf_get_extmarks(buf, ui.namespace(), 0, -1, { details = true })
     local sel
     for _, m in ipairs(marks) do
-      if m[4].line_hl_group == "PmenuSel" then sel = m end
+      if m[4].line_hl_group == "PmenuSel" then
+        sel = m
+      end
     end
     assert.is_not_nil(sel)
     assert.are.equal(1, sel[2]) -- 選択中(2番目)= 0-based row 1 をハイライト

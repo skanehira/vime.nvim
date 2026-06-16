@@ -5,7 +5,9 @@ local api = vim.api
 
 local function find_map(buf, lhs)
   for _, m in ipairs(api.nvim_buf_get_keymap(buf, "i")) do
-    if m.lhs == lhs then return m end
+    if m.lhs == lhs then
+      return m
+    end
   end
   return nil
 end
@@ -16,11 +18,23 @@ describe("vime.keymap", function()
     local calls = {}
     local function noop() end
     local handlers = {
-      input = function(ch) calls.input = ch end,
-      convert = function() calls.convert = true end,
-      commit = noop, cancel = noop, backspace = noop,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop, alphabet = noop,
-      next_candidate = noop, prev_candidate = noop,
+      input = function(ch)
+        calls.input = ch
+      end,
+      convert = function()
+        calls.convert = true
+      end,
+      commit = noop,
+      cancel = noop,
+      backspace = noop,
+      next_segment = noop,
+      prev_segment = noop,
+      expand = noop,
+      shrink = noop,
+      katakana = noop,
+      alphabet = noop,
+      next_candidate = noop,
+      prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -40,11 +54,23 @@ describe("vime.keymap", function()
     local calls = {}
     local function noop() end
     local handlers = {
-      input = function(ch) calls.input = ch end,
-      convert = noop, commit = noop, cancel = noop,
-      backspace = function() calls.backspace = true end,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop, alphabet = noop,
-      next_candidate = noop, prev_candidate = noop,
+      input = function(ch)
+        calls.input = ch
+      end,
+      convert = noop,
+      commit = noop,
+      cancel = noop,
+      backspace = function()
+        calls.backspace = true
+      end,
+      next_segment = noop,
+      prev_segment = noop,
+      expand = noop,
+      shrink = noop,
+      katakana = noop,
+      alphabet = noop,
+      next_candidate = noop,
+      prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -63,9 +89,19 @@ describe("vime.keymap", function()
     local buf = api.nvim_create_buf(false, true)
     local function noop() end
     local handlers = {
-      input = noop, convert = noop, commit = noop, cancel = noop, backspace = noop,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop, alphabet = noop,
-      next_candidate = noop, prev_candidate = noop,
+      input = noop,
+      convert = noop,
+      commit = noop,
+      cancel = noop,
+      backspace = noop,
+      next_segment = noop,
+      prev_segment = noop,
+      expand = noop,
+      shrink = noop,
+      katakana = noop,
+      alphabet = noop,
+      next_candidate = noop,
+      prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
     keymap.detach(buf)
@@ -77,10 +113,23 @@ describe("vime.keymap", function()
     local calls = {}
     local function noop() end
     local handlers = {
-      input = noop, convert = noop, commit = noop, cancel = noop, backspace = noop,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop, alphabet = noop,
-      next_candidate = function() calls.next = true end,
-      prev_candidate = function() calls.prev = true end,
+      input = noop,
+      convert = noop,
+      commit = noop,
+      cancel = noop,
+      backspace = noop,
+      next_segment = noop,
+      prev_segment = noop,
+      expand = noop,
+      shrink = noop,
+      katakana = noop,
+      alphabet = noop,
+      next_candidate = function()
+        calls.next = true
+      end,
+      prev_candidate = function()
+        calls.prev = true
+      end,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
@@ -100,10 +149,21 @@ describe("vime.keymap", function()
     local calls = {}
     local function noop() end
     local handlers = {
-      input = noop, convert = noop, commit = noop, cancel = noop, backspace = noop,
-      next_segment = noop, prev_segment = noop, expand = noop, shrink = noop, katakana = noop,
-      next_candidate = noop, prev_candidate = noop,
-      alphabet = function() calls.alphabet = true end,
+      input = noop,
+      convert = noop,
+      commit = noop,
+      cancel = noop,
+      backspace = noop,
+      next_segment = noop,
+      prev_segment = noop,
+      expand = noop,
+      shrink = noop,
+      katakana = noop,
+      next_candidate = noop,
+      prev_candidate = noop,
+      alphabet = function()
+        calls.alphabet = true
+      end,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 

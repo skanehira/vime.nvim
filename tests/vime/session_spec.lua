@@ -131,7 +131,7 @@ describe("vime.session CONVERTING (real anthy)", function()
     type_in(s, "kyouhaii")
     s:start_conversion()
     local last = s:candidates()[#s:candidates()] -- 注目文節の末尾候補
-    s:prev_candidate()                            -- 先頭(1)から前へ → 末尾へ wrap
+    s:prev_candidate() -- 先頭(1)から前へ → 末尾へ wrap
     assert.are.equal(last, s:segments().list[1])
   end)
 

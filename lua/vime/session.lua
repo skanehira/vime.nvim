@@ -12,10 +12,10 @@ Session.__index = Session
 function M.new(anthy_module)
   return setmetatable({
     _anthy = anthy_module, -- anthy セッションを生成するモジュール
-    anthy = nil,           -- 生成した anthy セッション(変換中に再利用)
+    anthy = nil, -- 生成した anthy セッション(変換中に再利用)
     _state = "composing",
     romaji = "",
-    _latin = false,        -- 英字ラン(大文字始まり。変換せず生の英字)
+    _latin = false, -- 英字ラン(大文字始まり。変換せず生の英字)
     _segments = nil,
     seg_index = 1,
     choices = {},

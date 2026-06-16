@@ -14,7 +14,8 @@ local M = {}
 -- 推奨は現役保守の anthy-unicode(ABI 互換)。
 function M.install_hint(os)
   os = os or jit.os
-  local tail = "導入後に自動検出されない場合は setup({ anthy = { lib = ... } }) か環境変数 $VIME_ANTHY_LIB でパス指定"
+  local tail =
+    "導入後に自動検出されない場合は setup({ anthy = { lib = ... } }) か環境変数 $VIME_ANTHY_LIB でパス指定"
   if os == "OSX" then
     return table.concat({
       "vime: libanthy が見つかりません。anthy-unicode の導入を推奨します(macOS):",
@@ -44,7 +45,7 @@ local st = {
   buf = nil,
   row = 0,
   start_col = 0, -- 未確定領域の開始 byte 列
-  len = 0,       -- 未確定領域の byte 長
+  len = 0, -- 未確定領域の byte 長
   popup_open = false,
 }
 
@@ -184,7 +185,7 @@ function M.on_convert()
     render()
   else
     st.session:next_candidate()
-    st.popup_open = true  -- 2回目以降の Space で候補一覧を表示
+    st.popup_open = true -- 2回目以降の Space で候補一覧を表示
     render()
   end
 end
@@ -281,38 +282,46 @@ end
 
 function M.on_next_segment()
   if st.enabled then
-    st.session:next_segment(); render() -- popup が開いていれば render が追従表示
+    st.session:next_segment()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 function M.on_prev_segment()
   if st.enabled then
-    st.session:prev_segment(); render() -- popup が開いていれば render が追従表示
+    st.session:prev_segment()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 function M.on_expand()
   if st.enabled then
-    st.session:expand(); render() -- popup が開いていれば render が追従表示
+    st.session:expand()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 function M.on_shrink()
   if st.enabled then
-    st.session:shrink(); render() -- popup が開いていれば render が追従表示
+    st.session:shrink()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 -- 変換中のみ候補を次/前へ送り、popup を更新する。
 function M.on_next_candidate()
   if st.enabled and st.session:state() == "converting" then
-    st.session:next_candidate(); st.popup_open = true; render()
+    st.session:next_candidate()
+    st.popup_open = true
+    render()
   end
 end
 
 function M.on_prev_candidate()
   if st.enabled and st.session:state() == "converting" then
-    st.session:prev_candidate(); st.popup_open = true; render()
+    st.session:prev_candidate()
+    st.popup_open = true
+    render()
   end
 end
 
