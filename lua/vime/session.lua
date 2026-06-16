@@ -12,10 +12,10 @@ Session.__index = Session
 function M.new(anthy_module)
   return setmetatable({
     _anthy = anthy_module, -- anthy セッションを生成するモジュール
-    anthy = nil,           -- 生成した anthy セッション(変換中に再利用)
+    anthy = nil, -- 生成した anthy セッション(変換中に再利用)
     _state = "composing",
     romaji = "",
-    _latin = false,        -- 英字ラン(大文字始まり。変換せず生の英字)
+    _latin = false, -- 英字ラン(大文字始まり。変換せず生の英字)
     _segments = nil,
     seg_index = 1,
     choices = {},
@@ -155,6 +155,14 @@ function Session:candidates()
   return self._segments[self.seg_index].candidates
 end
 
+-- 注目文節で現在選択中の候補 index(1-based)。converting でなければ nil。
+function Session:current_candidate_index()
+  if self._state ~= "converting" then
+    return nil
+  end
+  return self.choices[self.seg_index]
+end
+
 -- 注目文節の候補を idx(1-based)で選択する。
 function Session:select(idx)
   if self._state ~= "converting" then
@@ -171,6 +179,15 @@ function Session:next_candidate()
   local i = self.seg_index
   local n = #self._segments[i].candidates
   self.choices[i] = (self.choices[i] % n) + 1
+end
+
+function Session:prev_candidate()
+  if self._state ~= "converting" then
+    return
+  end
+  local i = self.seg_index
+  local n = #self._segments[i].candidates
+  self.choices[i] = (self.choices[i] - 2) % n + 1 -- 1 から前は末尾へ wrap
 end
 
 function Session:next_segment()
@@ -239,6 +256,21 @@ function Session:commit_katakana()
   end
   reset_composing(self)
   return romaji.to_katakana(reading)
+end
+
+-- 入力したローマ字(英小文字)をそのまま確定する文字列を返す(例: ふぉお → foo)。
+-- composing/converting どちらでも romaji バッファで動く。かな入力中の romaji は常に
+-- 小文字なのでそのまま英小文字になる。英字ラン/空なら "" を返す。
+function Session:commit_alphabet()
+  if self._latin then
+    return ""
+  end
+  if self.romaji == "" then
+    return ""
+  end
+  local text = self.romaji
+  reset_composing(self)
+  return text
 end
 
 -- 取消。converting なら変換前のかな(composing)へ戻す。composing なら未確定を破棄。

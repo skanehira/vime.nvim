@@ -14,7 +14,8 @@ local M = {}
 -- 推奨は現役保守の anthy-unicode(ABI 互換)。
 function M.install_hint(os)
   os = os or jit.os
-  local tail = "導入後に自動検出されない場合は setup({ anthy = { lib = ... } }) か環境変数 $VIME_ANTHY_LIB でパス指定"
+  local tail =
+    "導入後に自動検出されない場合は setup({ anthy = { lib = ... } }) か環境変数 $VIME_ANTHY_LIB でパス指定"
   if os == "OSX" then
     return table.concat({
       "vime: libanthy が見つかりません。anthy-unicode の導入を推奨します(macOS):",
@@ -44,8 +45,7 @@ local st = {
   buf = nil,
   row = 0,
   start_col = 0, -- 未確定領域の開始 byte 列
-  len = 0,       -- 未確定領域の byte 長
-  space_count = 0,
+  len = 0, -- 未確定領域の byte 長
   popup_open = false,
 }
 
@@ -76,10 +76,35 @@ local function place_cursor()
   api.nvim_win_set_cursor(0, { st.row + 1, st.start_col + st.len })
 end
 
--- 現在の session 状態をバッファ＋ハイライトへ反映する。
+-- 注目文節の候補一覧 popup を(再)表示する。選択中を含む最大 POPUP_MAX 件の窓を出す。
+local POPUP_MAX = 9
+local function open_popup_window()
+  if st.session:state() ~= "converting" then
+    return
+  end
+  local cands = st.session:candidates()
+  local n = #cands
+  if n == 0 then
+    return
+  end
+  local sel = st.session:current_candidate_index() or 1
+  local first = 1
+  if n > POPUP_MAX then -- 選択中を含む窓へスクロール
+    first = math.min(math.max(sel - math.floor(POPUP_MAX / 2), 1), n - POPUP_MAX + 1)
+  end
+  local items, rel = {}, 1
+  for i = first, math.min(first + POPUP_MAX - 1, n) do
+    items[#items + 1] = cands[i]
+    if i == sel then
+      rel = #items
+    end
+  end
+  ui.show_popup(items, rel)
+end
+
+-- 現在の session 状態をバッファ＋ハイライトへ反映する。popup は開いていれば追従表示する。
 local function render()
   ui.clear(st.buf)
-  st.popup_open = false
   local s = st.session
   if s:state() == "converting" then
     local view = s:segments()
@@ -91,6 +116,9 @@ local function render()
     if kana ~= "" then
       ui.highlight_preedit(st.buf, st.row, st.start_col, st.len)
     end
+  end
+  if st.popup_open then
+    open_popup_window()
   end
   place_cursor()
 end
@@ -121,22 +149,6 @@ local function insert_literal(text)
   end
 end
 
--- 注目文節の候補一覧 popup を表示する。
-local function show_popup()
-  local cands = st.session:candidates()
-  local labels = st.cfg.popup.labels
-  local items = {}
-  for i, c in ipairs(cands) do
-    local label = labels:sub(i, i)
-    if label == "" then
-      break -- ラベル枯渇分は表示しない
-    end
-    items[#items + 1] = label .. ": " .. c
-  end
-  ui.show_popup(items)
-  st.popup_open = true
-end
-
 ----------------------------------------------------------------------
 -- ハンドラ(keymap からディスパッチされる)
 ----------------------------------------------------------------------
@@ -146,21 +158,10 @@ function M.on_input(ch)
     return
   end
   sync_anchor()
-  -- popup 表示中はラベル選択
-  if st.popup_open then
-    local idx = st.cfg.popup.labels:find(ch:lower(), 1, true)
-    if idx then
-      st.session:select(idx)
-      st.space_count = 0
-      render()
-      return
-    end
-  end
   local confirmed = st.session:input(ch)
   if confirmed ~= "" then
     finalize(confirmed)
   end
-  st.space_count = 0
   render()
 end
 
@@ -180,15 +181,12 @@ function M.on_convert()
       return
     end
     st.session:start_conversion()
-    st.space_count = 0
+    st.popup_open = false -- 1回目の Space は変換開始のみ(候補一覧は出さない)
     render()
   else
-    st.space_count = st.space_count + 1
     st.session:next_candidate()
+    st.popup_open = true -- 2回目以降の Space で候補一覧を表示
     render()
-    if st.space_count >= st.cfg.popup.threshold then
-      show_popup()
-    end
   end
 end
 
@@ -209,7 +207,6 @@ function M.on_cancel()
     return
   end
   st.session:cancel()
-  st.space_count = 0
   render()
 end
 
@@ -235,6 +232,18 @@ function M.on_katakana()
   local kata = st.session:commit_katakana()
   if kata ~= "" then
     finalize(kata)
+  end
+end
+
+-- F10: 入力したローマ字を英小文字として確定する(例: ふぉお → foo)。
+function M.on_alphabet()
+  if not st.enabled then
+    return
+  end
+  sync_anchor()
+  local letters = st.session:commit_alphabet()
+  if letters ~= "" then
+    finalize(letters)
   end
 end
 
@@ -268,31 +277,51 @@ function M.on_insert_leave()
     ui.clear(st.buf)
     st.len = 0
   end
-  st.space_count = 0
   st.popup_open = false
 end
 
 function M.on_next_segment()
   if st.enabled then
-    st.session:next_segment(); render()
+    st.session:next_segment()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 function M.on_prev_segment()
   if st.enabled then
-    st.session:prev_segment(); render()
+    st.session:prev_segment()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 function M.on_expand()
   if st.enabled then
-    st.session:expand(); render()
+    st.session:expand()
+    render() -- popup が開いていれば render が追従表示
   end
 end
 
 function M.on_shrink()
   if st.enabled then
-    st.session:shrink(); render()
+    st.session:shrink()
+    render() -- popup が開いていれば render が追従表示
+  end
+end
+
+-- 変換中のみ候補を次/前へ送り、popup を更新する。
+function M.on_next_candidate()
+  if st.enabled and st.session:state() == "converting" then
+    st.session:next_candidate()
+    st.popup_open = true
+    render()
+  end
+end
+
+function M.on_prev_candidate()
+  if st.enabled and st.session:state() == "converting" then
+    st.session:prev_candidate()
+    st.popup_open = true
+    render()
   end
 end
 
@@ -311,7 +340,10 @@ local function handlers()
     prev_segment = M.on_prev_segment,
     expand = M.on_expand,
     shrink = M.on_shrink,
+    next_candidate = M.on_next_candidate,
+    prev_candidate = M.on_prev_candidate,
     katakana = M.on_katakana,
+    alphabet = M.on_alphabet,
     kill = M.on_kill,
   }
 end
@@ -324,7 +356,6 @@ local function enable()
   st.row = cur[1] - 1
   st.start_col = cur[2]
   st.len = 0
-  st.space_count = 0
   st.popup_open = false
   keymap.attach(st.buf, st.cfg, handlers())
 end

@@ -162,4 +162,177 @@ describe("vime end-to-end", function()
     assert.is_false(vime.is_enabled())
     assert.are.equal("わたし", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
   end)
+
+  it("converts the preedit to lowercase letters on F10", function()
+    vime.setup({ anthy = { lib = LIB } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    vime.toggle()
+    for ch in ("foo"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.are.equal("ふぉお", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vime.on_alphabet() -- F10: 入力したローマ字(英小文字)で確定
+    assert.are.equal("foo", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vime.toggle()
+  end)
+end)
+
+describe("vime candidate popup", function()
+  -- 現在のタブページに開いているフローティング window(候補 popup)の数。
+  local function floating_win_count()
+    local n = 0
+    for _, w in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_get_config(w).relative ~= "" then
+        n = n + 1
+      end
+    end
+    return n
+  end
+
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle() -- popup を確実に閉じてテスト間を隔離
+    end
+  end)
+
+  it("does not show the popup on the first Space (conversion start)", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 1回目: 変換開始のみ。候補一覧は出さない
+    assert.are.equal(0, floating_win_count())
+  end)
+
+  it("shows the popup on the second Space (candidate cycling)", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 1回目: 変換開始
+    vime.on_convert() -- 2回目: 候補巡回 → popup 表示
+    assert.are.equal(1, floating_win_count())
+  end)
+
+  it("shows the popup when navigating candidates with C-n", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 変換開始(popup なし)
+    vime.on_next_candidate() -- C-n → popup 表示
+    assert.are.equal(1, floating_win_count())
+  end)
+
+  it("keeps the popup on the focused segment when moving or resizing segments", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyouhaiitenki"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 変換開始
+    vime.on_convert() -- 巡回 → popup 表示
+    assert.are.equal(1, floating_win_count())
+    vime.on_next_segment() -- 注目文節を移動 → popup が追従
+    assert.are.equal(1, floating_win_count())
+    vime.on_expand() -- 文節を伸長 → popup が追従
+    assert.are.equal(1, floating_win_count())
+  end)
+
+  it("closes the popup after committing", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 変換開始
+    vime.on_convert() -- 巡回 → popup 表示
+    assert.are.equal(1, floating_win_count())
+    vime.on_commit()
+    assert.are.equal(0, floating_win_count())
+  end)
+
+  it("closes the popup when leaving insert mode", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 変換開始
+    vime.on_convert() -- 巡回 → popup 表示
+    assert.are.equal(1, floating_win_count())
+    vime.on_insert_leave()
+    assert.are.equal(0, floating_win_count())
+  end)
+
+  it("commits the conversion when more input is typed during selection", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 変換開始
+    vime.on_convert() -- 巡回(popup 表示)
+    assert.are.equal(1, floating_win_count())
+    -- 旧ラベル文字 "k" を入力 → ラベル選択ではなく確定して新規入力に回る
+    vime.on_input("k")
+    local line = api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+    assert.are.equal("k", line:sub(-1)) -- 末尾は新規入力の k
+    assert.are.equal(0, floating_win_count()) -- 確定で popup は閉じる
+  end)
+
+  it("shows the candidate popup above a host floating window", function()
+    -- フローティングウィンドウ(AI 入力欄など)の中で入力するシナリオ
+    local host_buf = api.nvim_create_buf(false, true)
+    local host = api.nvim_open_win(host_buf, true, {
+      relative = "editor",
+      row = 1,
+      col = 1,
+      width = 30,
+      height = 6,
+    })
+    api.nvim_win_set_cursor(host, { 1, 0 })
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- 変換開始
+    vime.on_convert() -- 巡回 → popup 表示
+
+    -- ホスト以外のフローティング(=vime の候補 popup)を探す
+    local popup
+    for _, w in ipairs(api.nvim_list_wins()) do
+      if w ~= host and api.nvim_win_get_config(w).relative ~= "" then
+        popup = w
+      end
+    end
+    assert.is_not_nil(popup) -- ホスト float の中でも候補 popup が開く
+    local host_z = api.nvim_win_get_config(host).zindex
+    local popup_z = api.nvim_win_get_config(popup).zindex
+    assert.is_true(popup_z > host_z) -- ホストより前面に出る(後ろに隠れない)
+
+    api.nvim_win_close(host, true)
+  end)
 end)

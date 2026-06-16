@@ -50,6 +50,15 @@ describe("vime.session COMPOSING", function()
     assert.are.equal("composing", s:state())
     assert.are.equal("", s:preedit())
   end)
+
+  it("commits the typed romaji as lowercase letters", function()
+    local s = new()
+    type_in(s, "foo") -- ふぉお
+    assert.are.equal("ふぉお", s:preedit())
+    assert.are.equal("foo", s:commit_alphabet()) -- 元のローマ字(英小文字)で確定
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
 end)
 
 describe("vime.session LATIN (uppercase)", function()
@@ -117,6 +126,24 @@ describe("vime.session CONVERTING (real anthy)", function()
     assert.are.equal(second, s:segments().list[1])
   end)
 
+  it("cycles candidates backward and wraps to the last", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:start_conversion()
+    local last = s:candidates()[#s:candidates()] -- 注目文節の末尾候補
+    s:prev_candidate() -- 先頭(1)から前へ → 末尾へ wrap
+    assert.are.equal(last, s:segments().list[1])
+  end)
+
+  it("reports the selected candidate index of the focused segment", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:start_conversion()
+    assert.are.equal(1, s:current_candidate_index()) -- 初期は先頭候補
+    s:next_candidate()
+    assert.are.equal(2, s:current_candidate_index())
+  end)
+
   it("moves the focused segment with clamping", function()
     local s = new()
     type_in(s, "kyouhaii") -- 2文節
@@ -171,6 +198,15 @@ describe("vime.session CONVERTING (real anthy)", function()
     type_in(s, "kyouhaii") -- 読み: きょうはいい
     s:start_conversion()
     assert.are.equal("キョウハイイ", s:commit_katakana())
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
+
+  it("commits the typed romaji as letters even during conversion", function()
+    local s = new()
+    type_in(s, "kyou")
+    s:start_conversion()
+    assert.are.equal("kyou", s:commit_alphabet()) -- 変換中でも元のローマ字で確定
     assert.are.equal("composing", s:state())
     assert.are.equal("", s:preedit())
   end)

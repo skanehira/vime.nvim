@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 実 Anthy を使ってテストするため libanthy と辞書を入れる。
+      # libanthy-dev が /usr/lib/x86_64-linux-gnu/libanthy.so を、anthy が変換辞書を提供する。
+      - name: Install Anthy (libanthy + dictionary)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y anthy libanthy-dev
+
+      - name: Setup Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      # minimal_init は stdpath('data')/lazy/plenary.nvim を runtimepath に足す。
+      - name: Install plenary.nvim
+        run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "${HOME}/.local/share/nvim/lazy/plenary.nvim"
+
+      - name: Run tests
+        run: make test
+
+  lint:
+    name: lint (luacheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # luacheck の実行ランタイム。std=luajit は .luacheckrc の解析設定なのでランタイムは標準 Lua でよい。
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+
+      - uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install luacheck
+        run: luarocks install luacheck
+
+      - name: Run luacheck
+        run: luacheck lua tests
+
+  format:
+    name: format (stylua)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check formatting
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua tests

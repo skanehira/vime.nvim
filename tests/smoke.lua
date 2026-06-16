@@ -70,7 +70,7 @@ end
 do
   local buf = reset()
   feed("i<C-j>ka<Esc>") -- InsertLeave で か 確定、ノーマルモードへ
-  feed("x")             -- ノーマルモードのオペレータで削除
+  feed("x") -- ノーマルモードのオペレータで削除
   local l = lines(buf)[1] or ""
   check("Esc確定→ノーマルx削除", l == "")
 end
@@ -125,5 +125,14 @@ do
   check("F7カタカナ(キョウ)", (lines(buf)[1] or "") == "キョウ")
 end
 
+-- 12) F10 で英小文字確定(foo → ふぉお → foo)
+do
+  local buf = reset()
+  feed("i<C-j>foo<F10><Esc>")
+  check("F10英小文字(foo)", (lines(buf)[1] or "") == "foo")
+end
+
 print("==== smoke results ====")
-for _, r in ipairs(results) do print(r) end
+for _, r in ipairs(results) do
+  print(r)
+end

@@ -25,7 +25,9 @@ function M.attach(buf, config, handlers)
   end
 
   for _, ch in ipairs(printable_chars()) do
-    map(SPECIAL_LHS[ch] or ch, function() handlers.input(ch) end)
+    map(SPECIAL_LHS[ch] or ch, function()
+      handlers.input(ch)
+    end)
   end
 
   local km = config.keymaps
@@ -36,11 +38,18 @@ function M.attach(buf, config, handlers)
   map(km.prev_segment, handlers.prev_segment)
   map(km.expand, handlers.expand)
   map(km.shrink, handlers.shrink)
+  map(km.next_candidate, handlers.next_candidate)
+  map(km.prev_candidate, handlers.prev_candidate)
   map(km.katakana, handlers.katakana)
+  map(km.alphabet, handlers.alphabet)
   map("<BS>", handlers.backspace)
   map("<C-h>", handlers.backspace) -- 端末によっては Backspace が C-h
-  map("<C-w>", function() handlers.kill("<C-w>") end) -- 単語削除
-  map("<C-u>", function() handlers.kill("<C-u>") end) -- 行削除
+  map("<C-w>", function()
+    handlers.kill("<C-w>")
+  end) -- 単語削除
+  map("<C-u>", function()
+    handlers.kill("<C-u>")
+  end) -- 行削除
 
   registered[buf] = lhs_list
 end

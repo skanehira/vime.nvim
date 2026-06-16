@@ -5,18 +5,17 @@ describe("vime.config.merge", function()
     local c = config.merge(nil)
     assert.are.equal("<C-j>", c.keymaps.toggle)
     assert.are.equal("<Space>", c.keymaps.convert)
-    assert.are.equal(3, c.popup.threshold)
+    assert.are.equal("<C-n>", c.keymaps.next_candidate)
+    assert.are.equal("<F10>", c.keymaps.alphabet)
   end)
 
   it("overrides only the specified keys and keeps the rest", function()
     local c = config.merge({
       keymaps = { toggle = "<C-l>" },
-      popup = { threshold = 5 },
     })
     assert.are.equal("<C-l>", c.keymaps.toggle)
     assert.are.equal("<Space>", c.keymaps.convert) -- 既定維持
-    assert.are.equal(5, c.popup.threshold)
-    assert.are.equal("asdfghjkl", c.popup.labels) -- 既定維持
+    assert.are.equal("<C-p>", c.keymaps.prev_candidate) -- 既定維持(deep merge)
   end)
 end)
 
