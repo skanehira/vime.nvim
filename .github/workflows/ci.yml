@@ -10,7 +10,7 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       # 実 Anthy を使ってテストするため libanthy と辞書を入れる。
       # libanthy-dev が /usr/lib/x86_64-linux-gnu/libanthy.so を、anthy が変換辞書を提供する。
@@ -20,7 +20,7 @@ jobs:
           sudo apt-get install -y anthy libanthy-dev
 
       - name: Setup Neovim
-        uses: rhysd/action-setup-vim@v1
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
         with:
           neovim: true
           version: stable
@@ -36,14 +36,14 @@ jobs:
     name: lint (luacheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       # luacheck の実行ランタイム。std=luajit は .luacheckrc の解析設定なのでランタイムは標準 Lua でよい。
-      - uses: leafo/gh-actions-lua@v10
+      - uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
         with:
           luaVersion: "5.4"
 
-      - uses: leafo/gh-actions-luarocks@v4
+      - uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6.1.0
 
       - name: Install luacheck
         run: luarocks install luacheck
@@ -55,10 +55,10 @@ jobs:
     name: format (stylua)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Check formatting
-        uses: JohnnyMorganz/stylua-action@v4
+        uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: latest
