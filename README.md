@@ -60,6 +60,33 @@ meson compile -C build && meson install -C build
 
 Anthy の既定辞書に無い固有名詞などは、SKK 辞書（JISYO JSON）を取り込んで候補に追加できる → `:help vime-dictionary`。
 
+## カスタムローマ字テーブル（ACT 等）
+
+`setup({ romaji = { table = ... } })` でローマ字→かなテーブルを差し替えられる。指定したテーブルは既定（wapuro）と**マージせず完全置換**する。撥音 `ん`・促音 `っ`・大文字英字ランの look-ahead ロジックはテーブル非依存で常に有効。
+
+```lua
+require("vime").setup({
+  romaji = {
+    table = {
+      -- ACT 等の自前テーブル
+      ka = "か", ki = "き",
+      -- ...
+    },
+  },
+})
+```
+
+既定の wapuro テーブルをベースに一部だけ差し替えたい場合は、`require("vime.romaji").default_table` をコピーしてから上書きする:
+
+```lua
+local default = require("vime.romaji").default_table
+local mytable = vim.tbl_extend("force", {}, default)
+mytable.kt = "きと" -- 例: 自前の拡張エントリを追加
+require("vime").setup({ romaji = { table = mytable } })
+```
+
+`default_table` を直接書き換えない（モジュール状態を汚染するため必ずコピーすること）。
+
 ## 開発
 
 ```sh

@@ -75,6 +75,7 @@ setup() に渡せる設定と既定値: >lua
 
 	require("vime").setup({
 	  anthy = { lib = nil },          -- nil なら自動探索
+	  romaji = { table = nil },       -- nil なら既定(wapuro)
 	  keymaps = {
 	    toggle       = "<C-j>",
 	    convert      = "<Space>",
@@ -110,6 +111,23 @@ setup() に渡せる設定と既定値: >lua
 anthy.lib		libanthy のパス（文字列）。nil で自動探索する。
 			探索順は $VIME_ANTHY_LIB → 標準パス（~/.local/lib 等）→
 			nix ストア glob。libanthy-unicode / libanthy の両名を探す。
+
+						*vime-config-romaji.table*
+romaji.table		ローマ字→かなテーブル（table）。nil なら既定の wapuro。
+			非 nil なら完全置換（マージしない）。撥音 ん・促音 っ・
+			大文字英字ランの look-ahead はテーブル非依存で常に有効。
+			ACT 等の独自配列を入れたいときに使う。 >lua
+
+				local default =
+				  require("vime.romaji").default_table
+				local mytable =
+				  vim.tbl_extend("force", {}, default)
+				mytable.kt = "きと" -- 自前エントリ追加
+				require("vime").setup({
+				  romaji = { table = mytable },
+				})
+<
+			`default_table` は直接書き換えない（コピーすること）。
 
 						*vime-config-keymaps*
 keymaps			各操作のキー（|vime-mappings|）。
