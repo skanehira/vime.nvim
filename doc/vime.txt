@@ -18,7 +18,7 @@ CONTENTS						*vime* *vime-contents*
 ==============================================================================
 1. 概要							*vime-introduction*
 
-vime.vim は挿入モードのまま、OS の IME を切り替えずに日本語を入力できる
+vime.nvim は挿入モードのまま、OS の IME を切り替えずに日本語を入力できる
 Neovim プラグイン（モード式 IME）。pure Lua(LuaJIT) + libanthy(FFI) で完結し、
 外部プロセスを起動しない。変換は 2 段構成: >
 
@@ -58,7 +58,7 @@ anthy.lib を指定する。
 lazy.nvim の例: >lua
 
 	{
-	  "skanehira/vime.vim",
+	  "skanehira/vime.nvim",
 	  config = function()
 	    require("vime").setup() -- lib は自動探索。必要なら anthy = { lib = ... }
 	  end,

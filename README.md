@@ -1,4 +1,4 @@
-# vime.vim
+# vime.nvim
 
 英字を一気に日本語へ変換するモード式 IME の Neovim プラグイン。挿入モードのまま、OS の IME を切り替えずに日本語を入力できる。
 
@@ -88,7 +88,7 @@ require("vime").setup({
 
 ```lua
 {
-  "skanehira/vime.vim",
+  "skanehira/vime.nvim",
   config = function()
     require("vime").setup() -- lib は自動探索。必要なら anthy = { lib = ... } を渡す
   end,

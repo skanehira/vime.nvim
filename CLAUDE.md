@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## プロジェクト概要
 
-vime.vim は挿入モードのままで日本語入力できる Neovim プラグイン（モード式 IME）。pure Lua(LuaJIT) + libanthy(FFI) で完結し、外部プロセスを起動しない。
+vime.nvim は挿入モードのままで日本語入力できる Neovim プラグイン（モード式 IME）。pure Lua(LuaJIT) + libanthy(FFI) で完結し、外部プロセスを起動しない。
 
 詳細仕様は次の2点に従う（**実装・調査前に必ず参照**）:
 
