@@ -21,8 +21,10 @@ nvim --headless --noplugin -u tests/minimal_init.lua \
 nvim --headless -l tests/smoke.lua                   # 実 libanthy を使う E2E スモーク
 ```
 
-- `tests/minimal_init.lua` が `HOME` を毎回 `tempname()` に差し替えるため、`~/.anthy` 学習はテストごとに隔離される。テスト前提を変える際はここを必ず確認する。
-- smoke は `tests/smoke.lua` 内で nix store の `libanthy.dylib` をハードコードしている。環境が違うとパスを差し替える必要がある。
+- `tests/minimal_init.lua` が `HOME` と `XDG_CONFIG_HOME` を毎回 `tempname()` 配下へ差し替え、学習をテスト（spec ファイル＝別 nvim）ごとに隔離する。原 anthy は `$HOME/.anthy`、anthy-unicode は `$XDG_CONFIG_HOME/anthy`（anthy-unicode の HOME は `getpwuid` 由来で env では変えられないので XDG 隔離が必須）。テスト前提を変える際はここを必ず確認する。
+- libanthy のパスはハードコードせず `config.find_anthy_lib()`（`$VIME_ANTHY_LIB` → `~/.local/lib` 等の標準パス → nix glob。`libanthy-unicode`/`libanthy` 両名）で解決する。**`HOME` を temp 化すると `~` 展開が壊れるため、`minimal_init`/`smoke` は HOME 差し替え前に lib を解決して `VIME_ANTHY_LIB` に固定**する。別 lib を使うときも `VIME_ANTHY_LIB` を設定。
+- `session_spec` も実 anthy を注入して動かす（fake は廃止）。学習で結果が揺れないよう、辞書依存の絶対値ではなく安定事実・相対変化で検証し、学習する `it` は describe 末尾に置く。
+- 推奨エンジンは現役保守の anthy-unicode（別名 `libanthy-unicode`、ABI 互換なので cdef は無改変で 9100h とも共用）。dict が 9100h と異なり同じ読みでも分割/候補が変わる（例: きょうはいいてんきだね は 9100h=今日は… / unicode=今日…）ので、テストの絶対値依存は避ける。
 
 ## アーキテクチャの要点
 

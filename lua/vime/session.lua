@@ -1,6 +1,6 @@
 -- 変換セッションの状態機械(COMPOSING / CONVERTING)。
 -- ローマ字バッファを真実とし、preedit は都度 romaji.to_kana で導出する。
--- anthy への依存はインターフェース(convert/resize/commit/close)越し(DIP)。テストは fake を注入する。
+-- anthy への依存はインターフェース(convert/resize/commit/close)越し(DIP)。テストは実 anthy を注入する(差し替えも可能)。
 local romaji = require("vime.romaji")
 
 local M = {}
@@ -8,7 +8,7 @@ local M = {}
 local Session = {}
 Session.__index = Session
 
--- anthy_module: setup 済みの anthy(.new_session() を持つ)。テストでは fake を渡す。
+-- anthy_module: setup 済みの anthy(.new_session() を持つ)。テストでも同じ実 anthy を渡す(DIP で差し替え可能)。
 function M.new(anthy_module)
   return setmetatable({
     _anthy = anthy_module, -- anthy セッションを生成するモジュール
