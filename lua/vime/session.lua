@@ -155,6 +155,14 @@ function Session:candidates()
   return self._segments[self.seg_index].candidates
 end
 
+-- 注目文節で現在選択中の候補 index(1-based)。converting でなければ nil。
+function Session:current_candidate_index()
+  if self._state ~= "converting" then
+    return nil
+  end
+  return self.choices[self.seg_index]
+end
+
 -- 注目文節の候補を idx(1-based)で選択する。
 function Session:select(idx)
   if self._state ~= "converting" then
@@ -171,6 +179,15 @@ function Session:next_candidate()
   local i = self.seg_index
   local n = #self._segments[i].candidates
   self.choices[i] = (self.choices[i] % n) + 1
+end
+
+function Session:prev_candidate()
+  if self._state ~= "converting" then
+    return
+  end
+  local i = self.seg_index
+  local n = #self._segments[i].candidates
+  self.choices[i] = (self.choices[i] - 2) % n + 1 -- 1 から前は末尾へ wrap
 end
 
 function Session:next_segment()

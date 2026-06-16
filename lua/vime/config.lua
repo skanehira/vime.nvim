@@ -14,11 +14,9 @@ M.defaults = {
     prev_segment = "<C-b>",
     expand = "<C-o>",
     shrink = "<C-i>",
+    next_candidate = "<C-n>",
+    prev_candidate = "<C-p>",
     katakana = "<F7>",
-  },
-  popup = {
-    threshold = 3, -- Space を N 回で候補一覧
-    labels = "asdfghjkl",
   },
 }
 

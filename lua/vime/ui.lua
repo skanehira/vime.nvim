@@ -45,15 +45,23 @@ function M.clear(buf)
   M.close_popup()
 end
 
--- 候補一覧 popup を開く。items は表示行(例 "a: 今日は")。win id を返す。
-function M.show_popup(items)
+-- 候補一覧 popup を開く。items は表示行(例 "a: 今日は")。selected(1-based)を
+-- 渡すとその行を選択中として PmenuSel でハイライトする。win id を返す。
+function M.show_popup(items, selected)
   M.close_popup()
   local buf = api.nvim_create_buf(false, true)
   api.nvim_buf_set_lines(buf, 0, -1, false, items)
+  if selected and items[selected] then
+    api.nvim_buf_set_extmark(buf, ns, selected - 1, 0, { line_hl_group = "PmenuSel" })
+  end
   local width = 1
   for _, s in ipairs(items) do
     width = math.max(width, vim.fn.strdisplaywidth(s))
   end
+  -- フローティングウィンドウ(AI 入力欄等)の中で開く場合に後ろへ隠れないよう、
+  -- ホストの float より前面の zindex を与える。
+  local cur = api.nvim_win_get_config(0)
+  local host_z = (cur.relative ~= "" and cur.zindex) or 0
   popup_win = api.nvim_open_win(buf, false, {
     relative = "cursor",
     row = 1,
@@ -62,7 +70,9 @@ function M.show_popup(items)
     height = #items,
     style = "minimal",
     focusable = false,
+    zindex = math.max(250, host_z + 50),
   })
+  vim.wo[popup_win].winhighlight = "Normal:Pmenu" -- 通常のメニュー配色で表示
   return popup_win
 end
 
