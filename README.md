@@ -40,6 +40,30 @@ meson compile -C build && meson install -C build
 - 学習データは `$XDG_CONFIG_HOME/anthy`（未設定なら `~/.config/anthy`）に保存される（原 anthy の `~/.anthy` から移行）。
 - 変換精度などの検証結果は [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 を参照
 
+Nix で宣言的に管理している場合（Home Manager / NixOS / nix-darwin）は、`nix profile install` の代わりに構成へ `anthy` を足す（反映後 vime が自動検出する）。
+
+Home Manager（既存の `home.packages` に 1 行足すだけ）:
+
+```nix
+{ pkgs, ... }:
+{
+  home.packages = [
+    pkgs.anthy # 9100h・ABI 互換
+  ];
+}
+```
+
+システム全体に入れる場合（NixOS / nix-darwin の `environment.systemPackages`）:
+
+```nix
+{ pkgs, ... }:
+{
+  environment.systemPackages = [ pkgs.anthy ];
+}
+```
+
+反映は構成に応じて `home-manager switch --flake .#<name>` / `sudo nixos-rebuild switch --flake .#<host>` / `darwin-rebuild switch --flake .#<host>`（`nh` 等のラッパーでも可）。共有ライブラリは `/nix/store/…-anthy-*/lib/libanthy.dylib` に置かれ、vime のパス探索（nix ストアの glob）が拾うため `lib` の明示指定は不要。
+
 ## セットアップ
 
 `setup()` を呼ぶだけで、`libanthy-unicode` / `libanthy` を以下の順に**自動探索**します（多くの環境で `lib` 指定は不要）:
