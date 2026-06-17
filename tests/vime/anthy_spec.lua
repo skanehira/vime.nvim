@@ -51,3 +51,37 @@ describe("vime.anthy session", function()
     s:close()
   end)
 end)
+
+-- ユーザ辞書(私的辞書)への登録。HOME は spec 単位で隔離されるため新規語は事前に存在しない。
+local function count_candidate(yomi, word)
+  local s = anthy.new_session()
+  local segs = s:convert(yomi)
+  local n = 0
+  for _, seg in ipairs(segs) do
+    for _, c in ipairs(seg.candidates) do
+      if c == word then
+        n = n + 1
+      end
+    end
+  end
+  s:close()
+  return n
+end
+
+describe("vime.anthy.register_word", function()
+  before_each(function()
+    assert.is_true(anthy.setup(LIB))
+  end)
+
+  it("makes a registered word appear as a conversion candidate", function()
+    assert.are.equal(0, count_candidate("ぶいめ", "vime")) -- 登録前は出ない
+    assert.is_true(anthy.register_word("ぶいめ", "vime"))
+    assert.are.equal(1, count_candidate("ぶいめ", "vime")) -- 登録後は候補に出る
+  end)
+
+  it("is idempotent when the same word is registered twice", function()
+    assert.is_true(anthy.register_word("ぶいめ", "vime"))
+    assert.is_true(anthy.register_word("ぶいめ", "vime"))
+    assert.are.equal(1, count_candidate("ぶいめ", "vime")) -- 重複登録されない
+  end)
+end)

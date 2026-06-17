@@ -132,6 +132,37 @@ do
   check("F10英小文字(foo)", (lines(buf)[1] or "") == "foo")
 end
 
+-- 13) SKK 辞書取り込み(CLI: lua/vime/import.lua)→ 別 anthy context で登録語が候補になる
+do
+  local dictpath = vim.fn.tempname()
+  vim.fn.writefile({
+    vim.json.encode({
+      copyright = "c",
+      license = "l",
+      okuri_ari = {},
+      okuri_nasi = { ["ぶいめ"] = { "vime" } },
+    }),
+  }, dictpath)
+  local skk = require("vime.skk")
+  local anthy = require("vime.anthy")
+  skk.load(dictpath, function(yomi, word)
+    anthy.register_word(yomi, word)
+  end)
+  local s = anthy.new_session()
+  local segs = s:convert("ぶいめ")
+  local hit = false
+  for _, seg in ipairs(segs) do
+    for _, c in ipairs(seg.candidates) do
+      if c == "vime" then
+        hit = true
+      end
+    end
+  end
+  s:close()
+  check("SKK辞書取り込み(ぶいめ→vime)", hit)
+  vim.fn.delete(dictpath)
+end
+
 print("==== smoke results ====")
 for _, r in ipairs(results) do
   print(r)

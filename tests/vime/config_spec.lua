@@ -47,3 +47,33 @@ describe("vime.config.find_anthy_lib", function()
     assert.are.equal(1, vim.fn.filereadable(found))
   end)
 end)
+
+describe("vime.config.find_anthy_dic_lib", function()
+  it("prefers VIME_ANTHY_DIC_LIB when set and readable", function()
+    local existing = vim.fn.tempname()
+    vim.fn.writefile({}, existing)
+    local saved = vim.env.VIME_ANTHY_DIC_LIB
+    vim.env.VIME_ANTHY_DIC_LIB = existing
+    assert.are.equal(existing, config.find_anthy_dic_lib("/whatever/libanthy.dylib"))
+    vim.env.VIME_ANTHY_DIC_LIB = saved
+    vim.fn.delete(existing)
+  end)
+
+  it("derives the dic library next to the main library", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local main = dir .. "/libanthy.dylib"
+    local dic = dir .. "/libanthydic.dylib"
+    vim.fn.writefile({}, main)
+    vim.fn.writefile({}, dic)
+    assert.are.equal(dic, config.find_anthy_dic_lib(main))
+    vim.fn.delete(dir, "rf")
+  end)
+
+  it("returns nil when neither env nor a derived dic library exists", function()
+    local saved = vim.env.VIME_ANTHY_DIC_LIB
+    vim.env.VIME_ANTHY_DIC_LIB = nil
+    assert.is_nil(config.find_anthy_dic_lib("/nonexistent/libanthy.dylib"))
+    vim.env.VIME_ANTHY_DIC_LIB = saved
+  end)
+end)
