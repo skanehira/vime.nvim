@@ -10,10 +10,11 @@ CONTENTS						*vime* *vime-contents*
 	2. 必要環境 ......................... |vime-requirements|
 	3. セットアップ ..................... |vime-setup|
 	4. 設定 ............................. |vime-configuration|
-	5. 使い方 ........................... |vime-usage|
-	6. キーマッピング ................... |vime-mappings|
-	7. ハイライト ....................... |vime-highlights|
-	8. ライセンス ....................... |vime-license|
+	5. ユーザー辞書 ..................... |vime-dictionary|
+	6. 使い方 ........................... |vime-usage|
+	7. キーマッピング ................... |vime-mappings|
+	8. ハイライト ....................... |vime-highlights|
+	9. ライセンス ....................... |vime-license|
 
 ==============================================================================
 1. 概要							*vime-introduction*
@@ -97,8 +98,57 @@ anthy.lib		libanthy のパス（文字列）。nil で自動探索する。
 						*vime-config-keymaps*
 keymaps			各操作のキー（|vime-mappings|）。
 
+SKK 辞書の取り込みは設定ではなく CLI で行う（|vime-dictionary|）。
+
 ==============================================================================
-5. 使い方						*vime-usage*
+5. ユーザー辞書（SKK 辞書）				*vime-dictionary*
+
+Anthy の既定辞書に無い固有名詞・人名・駅名などを、SKK 辞書を取り込んで
+変換候補に追加できる。入力形式は JISYO 形式（JSON）。
+取り込みはエディタとは別プロセスの CLI で一度だけ実行する。
+
+	https://github.com/skk-dict/jisyo
+
+1. 辞書を入手する ~
+
+JISYO の JSON は次の URL で配布されている（vime はダウンロードしない）。
+欲しい辞書をローカルに置く。 >sh
+
+	mkdir -p ~/.config/vime
+	curl -L -o ~/.config/vime/SKK-JISYO.propernoun.json \
+	  https://skk-dict.github.io/jisyo/json/SKK-JISYO.propernoun.json
+<
+<名前> には propernoun / jinmei / station / geo / emoji / L などが使える。
+
+2. CLI で取り込む ~
+
+nvim -l で同梱の取り込みスクリプトを実行する（パスは導入先に合わせる。
+lazy.nvim なら ~/.local/share/nvim/lazy/vime.nvim）。 >sh
+
+	nvim -l ~/.local/share/nvim/lazy/vime.nvim/lua/vime/import.lua \
+	  ~/.config/vime/SKK-JISYO.propernoun.json
+<
+登録後は設定不要で、通常どおり変換すると候補に出る。辞書を更新したら同じ
+コマンドを再実行する（毎回ソート・重複排除して書き直す）。SKK-JISYO.L
+（数十万語）も私的辞書テキストを直接生成するため 1 秒未満で取り込める。
+
+候補の出かた ~
+
+取り込んだ語は Anthy 既定の変換を壊さず、候補として追加される（低 freq 登録）。
+- 既に変換できる読み(さくら→桜)は既定が先頭のまま、取り込み語は後ろに並ぶ。
+- Anthy に無い読み(もうろく→耄碌)は かなの直後に出る(<Space>巡回/一覧で選択)。
+- 文中の文節にも候補として現れる(連文節変換に統合される)。
+
+注意 ~
+
+- 登録先は Anthy の「私的辞書」。これは vime 専用ではなく、同じ PC で Anthy を
+  使う他アプリ（ibus-anthy / fcitx-anthy / Emacs 等）の変換にも影響し永続する。
+  掃除は private_words_default（$XDG_CONFIG_HOME/anthy、原 anthy は ~/.anthy）を退避。
+- 取り込むのは送りなし（okuri_nasi）エントリのみで、すべて名詞として登録する。
+  送りあり（活用語）・数値変換・(concat …) は対象外。
+
+==============================================================================
+6. 使い方						*vime-usage*
 
 挿入モードで <C-j>（既定）を押すと日本語入力が ON になる。
 
@@ -115,7 +165,7 @@ keymaps			各操作のキー（|vime-mappings|）。
 未確定は自動的に確定される。
 
 ==============================================================================
-6. キーマッピング					*vime-mappings*
+7. キーマッピング					*vime-mappings*
 
 日本語入力 ON 中の挿入モードキー（すべて |vime-configuration| で変更可）。
 
@@ -136,7 +186,7 @@ keymaps			各操作のキー（|vime-mappings|）。
 <Esc>			未確定/変換中を確定して挿入モードを抜ける。
 
 ==============================================================================
-7. ハイライト						*vime-highlights*
+8. ハイライト						*vime-highlights*
 
 VimeUnconfirmed		未確定のかな（既定: underline）。
 VimeSegment		変換中の注目文節（既定: reverse）。
@@ -146,7 +196,7 @@ VimeSegment		変換中の注目文節（既定: reverse）。
 	highlight VimeSegment guibg=#3b4252 gui=NONE
 <
 ==============================================================================
-8. ライセンス						*vime-license*
+9. ライセンス						*vime-license*
 
 MIT License. Copyright (c) 2026 skanehira.
 詳細は同梱の LICENSE を参照。

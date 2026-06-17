@@ -127,6 +127,51 @@ require("vime").setup({
 
 キーマップは `setup()` で変更できる（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8）。
 
+## ユーザー辞書（SKK 辞書の取り込み）
+
+Anthy の既定辞書に無い固有名詞・人名・駅名などを、[SKK 辞書](https://github.com/skk-dict/jisyo)を取り込んで変換候補に追加できます。入力形式は JISYO 形式（JSON）です。
+
+取り込みは**エディタとは別プロセスの CLI で一度だけ**実行します（編集中の Neovim を重くしません）。
+
+### 1. 辞書を入手する
+
+[skk-dict/jisyo](https://github.com/skk-dict/jisyo) の JSON は `https://skk-dict.github.io/jisyo/json/SKK-JISYO.<名前>.json` で配布されています。欲しい辞書をローカルに置きます（vime はダウンロードしません）:
+
+```sh
+mkdir -p ~/.config/vime
+# 固有名詞（読みが固有でかぶりにくく、用途を絞った辞書が最適）
+curl -L -o ~/.config/vime/SKK-JISYO.propernoun.json \
+  https://skk-dict.github.io/jisyo/json/SKK-JISYO.propernoun.json
+```
+
+`<名前>` には `propernoun` / `jinmei` / `station` / `geo` / `emoji` / `L` などが使えます（一覧は[配布元](https://github.com/skk-dict/jisyo#辞書)）。
+
+### 2. CLI で取り込む
+
+`nvim -l` でプラグイン同梱の取り込みスクリプトを実行します（パスは導入先に合わせて調整。`lazy.nvim` なら `~/.local/share/nvim/lazy/vime.nvim`）:
+
+```sh
+nvim -l ~/.local/share/nvim/lazy/vime.nvim/lua/vime/import.lua \
+  ~/.config/vime/SKK-JISYO.propernoun.json
+# => 取り込み: 12345 語 (skip 0) <- ...
+#    完了: <private_words_default のパス> に 12345 語 (今回 +12345, skip 0)
+```
+
+登録後は設定不要で、通常どおり変換すると候補に出ます。辞書を更新したら同じコマンドを再実行してください（毎回ソート・重複排除して書き直します）。`SKK-JISYO.L`（数十万語）も Anthy 私的辞書のテキストを直接生成するため**1 秒未満**で取り込めます。
+
+### 候補の出かた
+
+取り込んだ語は Anthy 既定の変換を**壊さず、候補として追加**されます（低い頻度で登録するため）。
+
+- Anthy が既に変換できる読み（例: `さくら`→`桜`）は **既定の候補が先頭のまま**で、取り込んだ語はその後ろに並びます。
+- Anthy に無い読み（例: `もうろく`→`耄碌`）は、かなの**直後**に取り込んだ語が出ます（`<Space>` 巡回や候補一覧から選択）。
+- 文中の文節にも候補として現れます（Anthy の連文節変換に統合されるため）。
+
+### 注意
+
+- **登録先は Anthy の「私的辞書」です。これは vime 専用ではなく、同じ PC で Anthy を使う他アプリ（ibus-anthy / fcitx-anthy / Emacs など）の変換にも影響し、永続します。** Anthy を vime 以外でも使っている場合は留意してください。掃除したいときは Anthy の私的辞書ファイル（`$XDG_CONFIG_HOME/anthy/private_words_default`、原 anthy は `~/.anthy/private_words_default`）を退避します。
+- 取り込むのは送りなし（`okuri_nasi`）エントリのみで、すべて**名詞**として登録します。送りあり（活用語）・数値変換・`(concat …)` は対象外です。
+
 ## 開発
 
 ```sh
