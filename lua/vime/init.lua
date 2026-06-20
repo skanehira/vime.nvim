@@ -163,6 +163,16 @@ local function render()
   sync_converting_keymap()
 end
 
+-- 確定単位ごとに挿入モード中の undo ブロックを区切る(:help i_CTRL-G_u)。
+-- 挿入モードガード必須: ノーマルで送ると <C-G>+u(undo) になり確定済みテキストを破壊する。
+-- "int" の "i"(先頭挿入)が肝: 末尾追加だと <CR> ハンドラ内で積んだ <C-G>u が後続キーや
+-- <Esc> の後で処理され、ノーマルモードでの u(undo) として誤発火する。
+local function break_undo_sequence()
+  if api.nvim_get_mode().mode:sub(1, 1) == "i" then
+    api.nvim_feedkeys(api.nvim_replace_termcodes("<C-G>u", true, false, true), "int", false)
+  end
+end
+
 -- 未確定領域を確定テキストで置き換え、領域を確定後の位置へ進める。
 -- 確定後は composing 状態に戻るため、converting 限定キーマップも同時に外す。
 local function finalize(text)
@@ -173,6 +183,7 @@ local function finalize(text)
   st.len = 0
   place_cursor()
   sync_converting_keymap()
+  break_undo_sequence()
 end
 
 -- 未確定が無いときに通常のスペース/改行をカーソル位置へ挿入する(素通し)。

@@ -582,6 +582,80 @@ describe("vime converting-only keymaps follow state transitions", function()
   end)
 end)
 
+describe("vime undo blocks", function()
+  -- 実ユーザのキー入力相当を keymap 経由で送る。"x" で typeahead 同期消化、
+  -- "t" で typed key 扱い(undo の判断・マッピング解釈を実環境と揃える)。
+  local function feed(keys)
+    api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), "tx", false)
+  end
+
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("breaks the undo block at each commit so u restores one commit at a time", function()
+    local buf = fresh_buf()
+    vime.toggle()
+
+    -- 挿入モードに入り「あいうえお<CR>かきくけこ<CR><Esc>」を実キーで打つ。
+    -- CR ごとに finalize → <C-G>u で undo ブロックが区切られる。
+    feed("iaiueo<CR>kakikukeko<CR><Esc>")
+    assert.are.equal("あいうえおかきくけこ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    -- 1回目 undo: 直近確定の「かきくけこ」だけが消える
+    vim.cmd("undo")
+    assert.are.equal("あいうえお", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    -- 2回目 undo: その前の確定の「あいうえお」が消える
+    vim.cmd("undo")
+    assert.are.equal("", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("breaks the undo block on katakana (F7) commit too", function()
+    local buf = fresh_buf()
+    vime.toggle()
+
+    feed("iaiueo<F7>kakiku<F7><Esc>")
+    assert.are.equal("アイウエオカキク", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vim.cmd("undo")
+    assert.are.equal("アイウエオ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vim.cmd("undo")
+    assert.are.equal("", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("does not break the undo block for literal spaces inserted without preedit", function()
+    local buf = fresh_buf()
+    vime.toggle()
+
+    -- 未確定なしで Space を 3 回 → insert_literal で素通し挿入(IME 確定ではない)
+    feed("i   <Esc>")
+    assert.are.equal("   ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    -- IME 確定経由ではないので Vim 標準どおり 1 ブロック扱い: 1 回 undo で全部消える
+    vim.cmd("undo")
+    assert.are.equal("", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+end)
+
 describe("vime integrations wiring", function()
   local function vime_insert_enter_autocmds()
     return vim.api.nvim_get_autocmds({ group = "vime", event = "InsertEnter" })
