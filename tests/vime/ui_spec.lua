@@ -87,3 +87,78 @@ describe("vime.ui popup", function()
     ui.close_popup()
   end)
 end)
+
+describe("vime.ui mode notify", function()
+  before_each(function()
+    ui.setup()
+    ui.close_mode_notify() -- 前テストの残骸を掃除
+  end)
+
+  it("opens a floating window for the given label", function()
+    local win = ui.show_mode_notify("あ", 1000)
+    assert.is_true(api.nvim_win_is_valid(win))
+    local buf = api.nvim_win_get_buf(win)
+    assert.are.equal("あ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    ui.close_mode_notify()
+  end)
+
+  it("closes automatically after the configured duration", function()
+    local win = ui.show_mode_notify("A", 30)
+    assert.is_true(api.nvim_win_is_valid(win))
+    vim.wait(200, function()
+      return not api.nvim_win_is_valid(win)
+    end)
+    assert.is_false(api.nvim_win_is_valid(win))
+  end)
+
+  it("replaces the previous popup when called again", function()
+    local first = ui.show_mode_notify("あ", 1000)
+    local second = ui.show_mode_notify("A", 1000)
+    assert.is_false(api.nvim_win_is_valid(first))
+    assert.is_true(api.nvim_win_is_valid(second))
+    ui.close_mode_notify()
+  end)
+
+  it("opens above a host floating window so it is not hidden", function()
+    -- フローティングウィンドウ(AI 入力欄など)の中で入力するシナリオ。
+    -- mode notify がホストの後ろに隠れないこと。
+    local host_buf = api.nvim_create_buf(false, true)
+    local host = api.nvim_open_win(host_buf, true, {
+      relative = "editor",
+      row = 1,
+      col = 1,
+      width = 30,
+      height = 6,
+    })
+    api.nvim_win_set_cursor(host, { 1, 0 })
+    local win = ui.show_mode_notify("あ", 1000)
+    local host_z = api.nvim_win_get_config(host).zindex
+    local notify_z = api.nvim_win_get_config(win).zindex
+    assert.is_true(notify_z > host_z)
+    ui.close_mode_notify()
+    api.nvim_win_close(host, true)
+  end)
+
+  it("applies a default green highlight to VimeModeNotify", function()
+    ui.setup()
+    local hl = api.nvim_get_hl(0, { name = "VimeModeNotify", link = false })
+    assert.are.equal(0x2e7d32, hl.bg)
+    assert.are.equal(0xffffff, hl.fg)
+    assert.is_true(hl.bold == true)
+  end)
+
+  it("applies a custom highlight when given in setup opts", function()
+    ui.setup({ mode_notify_highlight = { bg = "#123456", fg = "#abcdef" } })
+    local hl = api.nvim_get_hl(0, { name = "VimeModeNotify", link = false })
+    assert.are.equal(0x123456, hl.bg)
+    assert.are.equal(0xabcdef, hl.fg)
+    -- ユーザ指定の上書きはデフォルトの bold を継がない
+    assert.is_not_true(hl.bold)
+  end)
+
+  it("close_mode_notify closes the popup explicitly", function()
+    local win = ui.show_mode_notify("あ", 1000)
+    ui.close_mode_notify()
+    assert.is_false(api.nvim_win_is_valid(win))
+  end)
+end)

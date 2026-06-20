@@ -190,6 +190,129 @@ describe("vime end-to-end", function()
     vime.toggle()
   end)
 
+  it("exposes the current mode via vime.mode()", function()
+    vime.setup({ anthy = { lib = LIB } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    -- IME OFF: direct
+    assert.are.same(
+      { name = "direct", enabled = false, state = nil, ascii = false, latin = false },
+      vime.mode()
+    )
+
+    vime.toggle() -- ON
+    assert.are.same(
+      { name = "hiragana", enabled = true, state = "composing", ascii = false, latin = false },
+      vime.mode()
+    )
+
+    -- ASCII モード突入
+    vime.on_input(";")
+    assert.are.same(
+      { name = "ascii", enabled = true, state = "composing", ascii = true, latin = false },
+      vime.mode()
+    )
+
+    -- ASCII モード解除して変換中へ
+    vime.on_input(";")
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert()
+    -- 変換中は name に出さず hiragana のまま(候補 popup 側でシグナル)。
+    -- state フィールドだけが "converting" を保持する。
+    assert.are.same(
+      { name = "hiragana", enabled = true, state = "converting", ascii = false, latin = false },
+      vime.mode()
+    )
+
+    vime.on_cancel()
+    vime.toggle() -- OFF
+  end)
+
+  it("fires User VimeModeChanged when the mode name changes", function()
+    vime.setup({ anthy = { lib = LIB } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    local events = {}
+    local id = api.nvim_create_autocmd("User", {
+      pattern = "VimeModeChanged",
+      callback = function(args)
+        events[#events + 1] = args.data
+      end,
+    })
+
+    vime.toggle() -- direct → hiragana
+    vime.on_input("k") -- hiragana → hiragana (no event)
+    vime.on_input(";") -- hiragana → ascii
+    vime.on_input(";") -- ascii → hiragana
+    vime.on_cancel()
+    vime.toggle() -- hiragana → direct
+
+    api.nvim_del_autocmd(id)
+
+    local names = {}
+    for _, ev in ipairs(events) do
+      names[#names + 1] = ev.name
+    end
+    assert.are.same({ "hiragana", "ascii", "hiragana", "direct" }, names)
+
+    -- data には mode テーブル全体が乗る
+    assert.are.same(
+      { name = "hiragana", enabled = true, state = "composing", ascii = false, latin = false },
+      events[1]
+    )
+    assert.are.same(
+      { name = "ascii", enabled = true, state = "composing", ascii = true, latin = false },
+      events[2]
+    )
+  end)
+
+  it("shows a mode notify popup with the configured label on mode change", function()
+    vime.setup({
+      anthy = { lib = LIB },
+      mode_notify = { duration = 100, labels = { hiragana = "HIRA" } },
+    })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    vime.toggle() -- direct → hiragana
+    -- 直前に開かれた mode notify window を探す(buf 1行目がラベル)
+    local found
+    for _, w in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_get_config(w).relative ~= "" then
+        local b = api.nvim_win_get_buf(w)
+        local line = api.nvim_buf_get_lines(b, 0, 1, false)[1]
+        if line == "HIRA" then
+          found = w
+        end
+      end
+    end
+    assert.is_not_nil(found)
+
+    -- duration 経過で自動的に閉じる
+    vime.toggle() -- OFF (popup は別の direct ラベルへ置換 → 元の HIRA は閉じている)
+    require("vime.ui").close_mode_notify() -- 後続テストへの影響を防ぐ
+  end)
+
+  it("does not show the mode notify popup when disabled in config", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    local before = #api.nvim_list_wins()
+    vime.toggle() -- direct → hiragana
+    local after = #api.nvim_list_wins()
+    assert.are.equal(before, after)
+    vime.toggle() -- OFF
+  end)
+
   it("converts the preedit to lowercase letters on F10", function()
     vime.setup({ anthy = { lib = LIB } })
     local buf = api.nvim_create_buf(false, true)
@@ -232,7 +355,10 @@ describe("vime candidate popup", function()
     if vime.is_enabled() then
       vime.toggle()
     end
-    vime.setup({ anthy = { lib = LIB } })
+    -- 候補 popup の検証に集中するためモード通知 popup は無効化(floating window 数を乱さない)
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+    -- 前テストの mode notify popup が残っていれば確実に閉じる
+    require("vime.ui").close_mode_notify()
   end)
 
   after_each(function()

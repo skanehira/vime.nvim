@@ -20,6 +20,19 @@ M.defaults = {
     alphabet = "<F10>",
     ascii_toggle = ";", -- ASCII モード入退室(nil で無効化)
   },
+  mode_notify = {
+    enabled = true, -- モード切替時にカーソル下へ短時間 popup を出す
+    duration = 1000, -- ms
+    labels = {
+      -- 変換中は候補一覧 popup 側でシグナルするので、モード通知ラベルは持たない。
+      direct = "直",
+      hiragana = "あ",
+      ascii = "A",
+    },
+    -- nil なら ui.lua 側のデフォルト(緑背景・白字・bold)を使う。
+    -- nvim_set_hl 互換テーブル({ bg = "#...", fg = "#...", bold = true, ... })で明示上書き可。
+    highlight = nil,
+  },
 }
 
 -- OS ごとの共有ライブラリ拡張子(macOS=dylib / その他=so)。

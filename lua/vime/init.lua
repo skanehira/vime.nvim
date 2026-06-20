@@ -6,6 +6,7 @@ local anthy = require("vime.anthy")
 local session = require("vime.session")
 local ui = require("vime.ui")
 local keymap = require("vime.keymap")
+local mode = require("vime.mode")
 
 local api = vim.api
 local M = {}
@@ -47,6 +48,7 @@ local st = {
   start_col = 0, -- 未確定領域の開始 byte 列
   len = 0, -- 未確定領域の byte 長
   popup_open = false,
+  last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
 }
 
 -- 未確定が無い(idle)ときは実カーソル位置へ再アンカーする。
@@ -350,6 +352,23 @@ end
 -- モード制御
 ----------------------------------------------------------------------
 
+-- 現モードが直近通知した name と変わっていれば User VimeModeChanged を発火。
+-- 副作用: st.last_mode_name を更新。設定で有効ならカーソル下に短時間ラベルも表示する。
+-- 公開ハンドラ(M.on_xxx)・toggle・on_insert_leave の末尾でラップ越しに呼ばれる。
+local function notify_mode_change_if_needed()
+  local current = M.mode()
+  if st.last_mode_name == current.name then
+    return
+  end
+  st.last_mode_name = current.name
+  api.nvim_exec_autocmds("User", { pattern = "VimeModeChanged", data = current })
+  local cfg = st.cfg and st.cfg.mode_notify
+  if cfg and cfg.enabled then
+    local label = (cfg.labels and cfg.labels[current.name]) or current.name
+    ui.show_mode_notify(label, cfg.duration or 1000)
+  end
+end
+
 local function handlers()
   return {
     input = M.on_input,
@@ -414,9 +433,52 @@ function M.is_enabled()
   return st.enabled
 end
 
+-- 現在のモードを返す。ステータスライン等から参照する公開 API。
+-- 戻り値: { name, enabled, state, ascii, latin }
+--   name: "direct" | "hiragana" | "ascii"
+-- 変換中も name は "hiragana" のまま(候補 popup でシグナルされる)。state で区別可。
+function M.mode()
+  local s = st.session
+  return mode.compute({
+    enabled = st.enabled,
+    state = s and s:state() or nil,
+    ascii = s and s:is_ascii() or false,
+    latin = s and s:is_latin() or false,
+  })
+end
+
+-- 公開ハンドラ・toggle・on_insert_leave をモード変化通知付きに置換する。
+-- 直接呼出(`vime.on_xxx()`/`vime.toggle()`)経路と keymap 経路の両方で通知が走る。
+local NOTIFY_TARGETS = {
+  "on_input",
+  "on_convert",
+  "on_commit",
+  "on_cancel",
+  "on_backspace",
+  "on_next_segment",
+  "on_prev_segment",
+  "on_expand",
+  "on_shrink",
+  "on_next_candidate",
+  "on_prev_candidate",
+  "on_katakana",
+  "on_alphabet",
+  "on_kill",
+  "on_insert_leave",
+  "toggle",
+}
+for _, name in ipairs(NOTIFY_TARGETS) do
+  local fn = M[name]
+  M[name] = function(...)
+    local r = fn(...)
+    notify_mode_change_if_needed()
+    return r
+  end
+end
+
 function M.setup(opts)
   st.cfg = config.merge(opts)
-  ui.setup()
+  ui.setup({ mode_notify_highlight = st.cfg.mode_notify.highlight })
   local lib = st.cfg.anthy.lib or config.find_anthy_lib()
   st.anthy_ok = lib ~= nil and anthy.setup(lib)
   if not st.anthy_ok then

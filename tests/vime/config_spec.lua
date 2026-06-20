@@ -18,6 +18,35 @@ describe("vime.config.merge", function()
     assert.are.equal("<Space>", c.keymaps.convert) -- 既定維持
     assert.are.equal("<C-p>", c.keymaps.prev_candidate) -- 既定維持(deep merge)
   end)
+
+  it("defaults mode_notify to enabled with built-in labels", function()
+    local c = config.merge(nil)
+    assert.is_true(c.mode_notify.enabled)
+    assert.are.equal(1000, c.mode_notify.duration)
+    assert.are.equal("直", c.mode_notify.labels.direct)
+    assert.are.equal("あ", c.mode_notify.labels.hiragana)
+    assert.are.equal("A", c.mode_notify.labels.ascii)
+    assert.is_nil(c.mode_notify.labels.converting) -- converting は外向きの mode に出さない
+    -- highlight は既定 nil(ui 側の緑デフォルトを使う)
+    assert.is_nil(c.mode_notify.highlight)
+  end)
+
+  it("passes through a custom mode_notify highlight table", function()
+    local c = config.merge({
+      mode_notify = { highlight = { bg = "#ff0000", fg = "#000000" } },
+    })
+    assert.are.same({ bg = "#ff0000", fg = "#000000" }, c.mode_notify.highlight)
+  end)
+
+  it("merges only the overridden mode_notify labels", function()
+    local c = config.merge({
+      mode_notify = { enabled = false, labels = { hiragana = "HIRA" } },
+    })
+    assert.is_false(c.mode_notify.enabled)
+    assert.are.equal("HIRA", c.mode_notify.labels.hiragana)
+    assert.are.equal("直", c.mode_notify.labels.direct) -- 既定維持
+    assert.are.equal(1000, c.mode_notify.duration) -- 既定維持
+  end)
 end)
 
 describe("vime.config.find_anthy_lib", function()

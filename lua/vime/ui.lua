@@ -6,15 +6,29 @@ local M = {}
 
 local ns = api.nvim_create_namespace("vime")
 local popup_win = nil
+local mode_notify_win = nil
 
 function M.namespace()
   return ns
 end
 
 -- ハイライト群を定義する。ユーザは :highlight で上書き可。
-function M.setup()
+-- opts.mode_notify_highlight に nvim_set_hl 互換テーブルを渡すと VimeModeNotify を明示上書き。
+-- 未指定なら IME っぽい緑デフォルト(default=true なので :highlight ... default link でも上書き可)。
+function M.setup(opts)
   api.nvim_set_hl(0, "VimeUnconfirmed", { underline = true })
   api.nvim_set_hl(0, "VimeSegment", { reverse = true })
+  local custom = opts and opts.mode_notify_highlight
+  if custom then
+    api.nvim_set_hl(0, "VimeModeNotify", custom)
+  else
+    api.nvim_set_hl(0, "VimeModeNotify", {
+      bg = "#2e7d32",
+      fg = "#ffffff",
+      bold = true,
+      default = true,
+    })
+  end
 end
 
 -- 未確定(composing)の読みに下線を引く。
@@ -82,6 +96,50 @@ function M.close_popup()
     api.nvim_win_close(popup_win, true)
   end
   popup_win = nil
+end
+
+-- モード切替時に短時間だけ表示する小さな floating window を開く。
+-- label はカーソル下に1行で出し、duration_ms 後に自動で閉じる。連続呼出時は前回を即座に閉じる。
+-- win id を返す。
+function M.show_mode_notify(label, duration_ms)
+  M.close_mode_notify()
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, { label })
+  local width = math.max(1, vim.fn.strdisplaywidth(label))
+  -- フローティングウィンドウ(AI 入力欄等)の中で開く場合に後ろへ隠れないよう、
+  -- ホストの float より前面の zindex を与える。候補 popup よりは 10 低くしてあるので
+  -- (理論的に)共存する場合は候補が前面に来る。
+  local cur = api.nvim_win_get_config(0)
+  local host_z = (cur.relative ~= "" and cur.zindex) or 0
+  mode_notify_win = api.nvim_open_win(buf, false, {
+    relative = "cursor",
+    row = 1,
+    col = 0,
+    width = width,
+    height = 1,
+    style = "minimal",
+    focusable = false,
+    noautocmd = true,
+    zindex = math.max(200, host_z + 40),
+  })
+  vim.wo[mode_notify_win].winhighlight = "Normal:VimeModeNotify"
+  local opened = mode_notify_win
+  vim.defer_fn(function()
+    -- defer_fn 発火時に同じ window がまだ生きていれば閉じる。
+    -- 連続切替で別 win に置き換わっていれば古い defer は何もしない。
+    if mode_notify_win == opened then
+      M.close_mode_notify()
+    end
+  end, duration_ms)
+  return mode_notify_win
+end
+
+-- モード通知 popup を閉じる。
+function M.close_mode_notify()
+  if mode_notify_win and api.nvim_win_is_valid(mode_notify_win) then
+    api.nvim_win_close(mode_notify_win, true)
+  end
+  mode_notify_win = nil
 end
 
 return M
