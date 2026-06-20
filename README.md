@@ -1,13 +1,13 @@
 # vime.nvim
 
-英字を一気に日本語へ変換するモード式 IME の Neovim プラグイン。挿入モードのまま、OS の IME を切り替えずに日本語を入力できる。
+英字を日本語へ変換するモード式 IME の Neovim プラグイン。挿入モードのまま、OS の IME を切り替えずに日本語を入力できる。
 
 ```
 kyouhaiitenkidane → きょうはいいてんきだね → 今日は良い天気だね
    ①ローマ字→かな(自前)        ②かな→漢字(Anthy)
 ```
 
-かな→漢字変換は [Anthy](https://anthy.osdn.jp/) を LuaJIT FFI で直接呼び出す。外部プロセス不要、pure Lua で完結する。
+かな→漢字変換は [anthy](https://github.com/xorgy/anthy) or [anthy-unicode](https://github.com/fujiwarat/anthy-unicode) を LuaJIT FFI で直接呼び出す。外部プロセス不要、pure Lua で完結する。
 
 > 使い方・キー一覧・設定・ユーザー辞書の詳細はヘルプ `:help vime` を参照（[doc/vime.txt](doc/vime.txt)）。
 
