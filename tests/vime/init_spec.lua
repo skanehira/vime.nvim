@@ -197,10 +197,7 @@ describe("vime end-to-end", function()
     api.nvim_win_set_cursor(0, { 1, 0 })
 
     -- IME OFF: direct
-    assert.are.same(
-      { name = "direct", enabled = false, state = nil, ascii = false, latin = false },
-      vime.mode()
-    )
+    assert.are.same({ name = "direct", enabled = false, state = nil, ascii = false, latin = false }, vime.mode())
 
     vime.toggle() -- ON
     assert.are.same(
@@ -210,10 +207,7 @@ describe("vime end-to-end", function()
 
     -- ASCII モード突入
     vime.on_input(";")
-    assert.are.same(
-      { name = "ascii", enabled = true, state = "composing", ascii = true, latin = false },
-      vime.mode()
-    )
+    assert.are.same({ name = "ascii", enabled = true, state = "composing", ascii = true, latin = false }, vime.mode())
 
     -- ASCII モード解除して変換中へ
     vime.on_input(";")
@@ -262,14 +256,8 @@ describe("vime end-to-end", function()
     assert.are.same({ "hiragana", "ascii", "hiragana", "direct" }, names)
 
     -- data には mode テーブル全体が乗る
-    assert.are.same(
-      { name = "hiragana", enabled = true, state = "composing", ascii = false, latin = false },
-      events[1]
-    )
-    assert.are.same(
-      { name = "ascii", enabled = true, state = "composing", ascii = true, latin = false },
-      events[2]
-    )
+    assert.are.same({ name = "hiragana", enabled = true, state = "composing", ascii = false, latin = false }, events[1])
+    assert.are.same({ name = "ascii", enabled = true, state = "composing", ascii = true, latin = false }, events[2])
   end)
 
   it("shows a mode notify popup with the configured label on mode change", function()
