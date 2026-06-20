@@ -108,9 +108,8 @@ describe("vime.keymap", function()
     assert.is_nil(find_map(buf, "a"))
   end)
 
-  it("maps C-n/C-p to candidate navigation", function()
+  it("attach does not map converting-only keys (C-f/C-b/C-n/C-p/C-o/C-i)", function()
     local buf = api.nvim_create_buf(false, true)
-    local calls = {}
     local function noop() end
     local handlers = {
       input = noop,
@@ -124,24 +123,17 @@ describe("vime.keymap", function()
       shrink = noop,
       katakana = noop,
       alphabet = noop,
-      next_candidate = function()
-        calls.next = true
-      end,
-      prev_candidate = function()
-        calls.prev = true
-      end,
+      next_candidate = noop,
+      prev_candidate = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
-    local cn = find_map(buf, "<C-N>") or find_map(buf, "<C-n>")
-    assert.is_not_nil(cn)
-    cn.callback()
-    assert.is_true(calls.next)
-
-    local cp = find_map(buf, "<C-P>") or find_map(buf, "<C-p>")
-    assert.is_not_nil(cp)
-    cp.callback()
-    assert.is_true(calls.prev)
+    for _, lhs in ipairs({ "<C-F>", "<C-B>", "<C-N>", "<C-P>", "<C-O>", "<C-I>" }) do
+      assert.is_nil(
+        find_map(buf, lhs) or find_map(buf, lhs:lower()),
+        lhs .. " should not be mapped by attach() (only by attach_converting())"
+      )
+    end
   end)
 
   it("attach_converting maps converting-only keys to handlers", function()

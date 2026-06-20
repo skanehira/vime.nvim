@@ -490,3 +490,105 @@ describe("vime candidate popup", function()
     api.nvim_win_close(host, true)
   end)
 end)
+
+describe("vime converting-only keymaps follow state transitions", function()
+  -- converting 状態でのみ vime が文節操作系キー(C-f/C-b/C-n/C-p/C-o/C-i)を奪い、
+  -- composing / ASCII 直入力 / direct ではユーザの insert マッピングを生かす。
+  local CONVERTING_KEYS = { "<C-F>", "<C-B>", "<C-N>", "<C-P>", "<C-O>", "<C-I>" }
+
+  local function any_mapped(buf)
+    for _, lhs in ipairs(CONVERTING_KEYS) do
+      for _, m in ipairs(api.nvim_buf_get_keymap(buf, "i")) do
+        if m.lhs == lhs or m.lhs == lhs:lower() then
+          return true
+        end
+      end
+    end
+    return false
+  end
+
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("does not map converting keys while composing", function()
+    local buf = fresh_buf()
+    vime.toggle() -- ON, state="composing"
+    assert.is_false(any_mapped(buf))
+
+    -- composing で未確定が残っている状態でもマップしない
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.is_false(any_mapped(buf))
+  end)
+
+  it("maps converting keys upon entering converting and unmaps on commit", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+
+    vime.on_convert() -- composing → converting
+    assert.is_true(any_mapped(buf))
+
+    vime.on_commit() -- converting → composing
+    assert.is_false(any_mapped(buf))
+  end)
+
+  it("unmaps converting keys on cancel", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- converting
+    assert.is_true(any_mapped(buf))
+
+    vime.on_cancel()
+    assert.is_false(any_mapped(buf))
+  end)
+
+  it("unmaps converting keys when killed during conversion", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert()
+    assert.is_true(any_mapped(buf))
+
+    vime.on_kill("<C-u>")
+    assert.is_false(any_mapped(buf))
+  end)
+
+  it("unmaps converting keys when toggling OFF mid-conversion", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert()
+    assert.is_true(any_mapped(buf))
+
+    vime.toggle() -- OFF
+    assert.is_false(any_mapped(buf))
+  end)
+end)

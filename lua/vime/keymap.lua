@@ -46,14 +46,11 @@ function M.attach(buf, config, handlers)
   map(km.convert, handlers.convert)
   map(km.commit, handlers.commit)
   map(km.cancel, handlers.cancel)
-  map(km.next_segment, handlers.next_segment)
-  map(km.prev_segment, handlers.prev_segment)
-  map(km.expand, handlers.expand)
-  map(km.shrink, handlers.shrink)
-  map(km.next_candidate, handlers.next_candidate)
-  map(km.prev_candidate, handlers.prev_candidate)
   map(km.katakana, handlers.katakana)
   map(km.alphabet, handlers.alphabet)
+  -- 文節操作系(next/prev_segment, next/prev_candidate, expand, shrink)は converting に
+  -- 入った瞬間にのみ attach_converting() で張る。composing/ASCII 直入力 では vime が
+  -- 握らずユーザの insert マッピング/Vim 既定が生きるようにする。
   map("<BS>", handlers.backspace)
   map("<C-h>", handlers.backspace) -- 端末によっては Backspace が C-h
   map("<C-w>", function()

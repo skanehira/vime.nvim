@@ -49,7 +49,29 @@ local st = {
   len = 0, -- 未確定領域の byte 長
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
+  converting_keys_attached = false, -- converting 限定キーマップの現状(変化時のみ keymap を触る)
 }
+
+-- handlers() ローカルテーブル生成関数の forward declare。
+-- render()/finalize() から converting 限定キーマップ attach のために参照する。
+local handlers
+
+-- converting 限定キーマップ(C-f/C-b/C-n/C-p/C-o/C-i)を session の state に追従させる。
+-- state 変化時のみ buffer-local mapping を attach/detach する(冪等)。
+-- render() の末尾と finalize() の末尾(commit/確定パス)から呼ぶ。
+local function sync_converting_keymap()
+  if not st.enabled then
+    return
+  end
+  local converting = st.session and st.session:state() == "converting"
+  if converting and not st.converting_keys_attached then
+    keymap.attach_converting(st.buf, st.cfg, handlers())
+    st.converting_keys_attached = true
+  elseif not converting and st.converting_keys_attached then
+    keymap.detach_converting(st.buf)
+    st.converting_keys_attached = false
+  end
+end
 
 -- 未確定が無い(idle)ときは実カーソル位置へ再アンカーする。
 -- 確定後やユーザーの直接編集(Backspace 等)でズレた start_col を healing する。
@@ -138,9 +160,11 @@ local function render()
     open_popup_window()
   end
   place_cursor()
+  sync_converting_keymap()
 end
 
 -- 未確定領域を確定テキストで置き換え、領域を確定後の位置へ進める。
+-- 確定後は composing 状態に戻るため、converting 限定キーマップも同時に外す。
 local function finalize(text)
   set_region_text(text)
   ui.clear(st.buf)
@@ -148,6 +172,7 @@ local function finalize(text)
   st.start_col = st.start_col + #text
   st.len = 0
   place_cursor()
+  sync_converting_keymap()
 end
 
 -- 未確定が無いときに通常のスペース/改行をカーソル位置へ挿入する(素通し)。
@@ -369,7 +394,7 @@ local function notify_mode_change_if_needed()
   end
 end
 
-local function handlers()
+handlers = function()
   return {
     input = M.on_input,
     convert = M.on_convert,
@@ -409,10 +434,11 @@ local function disable()
   end
   if valid then
     ui.clear(st.buf)
-    keymap.detach(st.buf)
+    keymap.detach(st.buf) -- 共通・converting 限定マップを両方掃除する
   end
   st.enabled = false
   st.session = nil
+  st.converting_keys_attached = false
 end
 
 -- 日本語入力 ON/OFF をトグルする。
