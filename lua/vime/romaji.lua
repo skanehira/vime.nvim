@@ -109,6 +109,7 @@ local T = {
   tya = "ちゃ",
   tyu = "ちゅ",
   tyo = "ちょ",
+  tye = "ちぇ",
   cha = "ちゃ",
   chu = "ちゅ",
   cho = "ちょ",

@@ -35,6 +35,7 @@ describe("vime.romaji.to_kana", function()
       { "jya", "じゃ" },
       { "fa", "ふぁ" },
       { "che", "ちぇ" },
+      { "tye", "ちぇ" },
       { "fe", "ふぇ" },
       { "jugyou", "じゅぎょう" },
     })
