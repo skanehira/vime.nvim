@@ -18,6 +18,7 @@ M.defaults = {
     prev_candidate = "<C-p>",
     katakana = "<F7>",
     alphabet = "<F10>",
+    ascii_toggle = ";", -- ASCII モード入退室(nil で無効化)
   },
 }
 

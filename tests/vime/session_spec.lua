@@ -105,6 +105,139 @@ describe("vime.session LATIN (uppercase)", function()
   end)
 end)
 
+describe("vime.session ASCII mode", function()
+  it("enters ASCII mode on the toggle key and keeps the kana preedit", function()
+    local s = new()
+    type_in(s, "aka") -- あか
+    s:input(";")
+    assert.is_true(s:is_ascii())
+    assert.are.equal("あか", s:preedit()) -- kana は保留(commit されない)
+  end)
+
+  it("appends following keys to the latin segment without converting", function()
+    local s = new()
+    type_in(s, "aka;iPhone")
+    assert.are.equal("あかiPhone", s:preedit())
+    assert.is_true(s:is_ascii())
+  end)
+
+  it("preserves case and accepts spaces inside the ASCII run", function()
+    local s = new()
+    type_in(s, "aka;Hello World")
+    assert.are.equal("あかHello World", s:preedit())
+  end)
+
+  it("exits ASCII mode on the toggle key and starts a new kana segment", function()
+    local s = new()
+    type_in(s, "aka;iPhone;wo")
+    assert.are.equal("あかiPhoneを", s:preedit())
+    assert.is_false(s:is_ascii())
+  end)
+
+  it("enters ASCII mode from empty preedit", function()
+    local s = new()
+    s:input(";")
+    assert.is_true(s:is_ascii())
+    assert.are.equal("", s:preedit())
+    type_in(s, "foo")
+    assert.are.equal("foo", s:preedit())
+  end)
+
+  it("stays in ASCII mode for any non-toggle key (only the toggle key exits)", function()
+    local s = new()
+    type_in(s, "a;b") -- a→kana, ; ASCII ON, b→latin
+    assert.is_true(s:is_ascii())
+    type_in(s, "cd") -- 引き続き ASCII モード
+    assert.are.equal("あbcd", s:preedit())
+    assert.is_true(s:is_ascii())
+  end)
+
+  it("exits ASCII mode only when the toggle key is pressed again", function()
+    local s = new()
+    type_in(s, "a;bc;d") -- a→kana, ; ASCII ON, bc→latin, ; OFF, d→新規 kana
+    assert.are.equal("あbcd", s:preedit())
+    assert.is_false(s:is_ascii())
+  end)
+
+  it("removes one latin character on backspace in ASCII mode", function()
+    local s = new()
+    type_in(s, "a;XY")
+    s:backspace()
+    assert.are.equal("あX", s:preedit())
+    assert.is_true(s:is_ascii())
+  end)
+
+  it("keeps ASCII mode on even when the latin segment becomes empty on backspace", function()
+    local s = new()
+    type_in(s, "a;X")
+    s:backspace() -- X 削除 → latin 空セグメントは削除されるが ASCII モードは維持
+    assert.are.equal("あ", s:preedit())
+    assert.is_true(s:is_ascii()) -- ; を再度押すまで OFF にしない
+  end)
+
+  it("resumes typing into a new latin segment after the previous one was emptied", function()
+    local s = new()
+    type_in(s, "a;X")
+    s:backspace() -- latin 空削除、ASCII モード継続
+    type_in(s, "Y") -- ASCII モード中なので latin に追加(新規 latin セグメント作成)
+    assert.are.equal("あY", s:preedit())
+    assert.is_true(s:is_ascii())
+  end)
+
+  it("removes from the previous kana segment when backspace goes past the empty latin", function()
+    local s = new()
+    type_in(s, "a;X")
+    s:backspace() -- X 削除 → latin 空削除
+    s:backspace() -- 前の kana(a) から 1 文字削除
+    assert.are.equal("", s:preedit())
+  end)
+end)
+
+describe("vime.session CONVERTING with mixed kana/latin", function()
+  it("keeps latin literal and unconverted kana visible in preedit while converting first kana", function()
+    local s = new()
+    type_in(s, "kyou;A;wokatta") -- kana(kyou) / latin(A) / kana(wokatta)
+    s:start_conversion()
+    assert.are.equal("converting", s:state())
+    local pre = s:preedit()
+    assert.is_true(pre:find("A", 1, true) ~= nil) -- latin はリテラルで残る
+    assert.is_true(pre:find("をかった", 1, true) ~= nil) -- 未変換 kana はかな表示
+  end)
+
+  it("advances to the next kana segment on commit_step (returns nil while more remain)", function()
+    local s = new()
+    type_in(s, "kyou;A;wo")
+    s:start_conversion()
+    local result = s:commit_step()
+    assert.is_nil(result) -- まだ converting 継続
+    assert.are.equal("converting", s:state())
+    -- 注目は kana(wo) になっており、その変換結果が preedit に出る
+    local pre = s:preedit()
+    assert.is_true(pre:find("A", 1, true) ~= nil) -- latin は健在
+  end)
+
+  it("returns the joined text after the last kana segment is committed via commit_step", function()
+    local s = new()
+    type_in(s, "kyou;A;wo")
+    s:start_conversion()
+    s:commit_step() -- kyou 確定 → kana(wo) 自動 converting
+    local final = s:commit_step() -- wo 確定 → 全終了
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+    assert.is_true(final:find("A", 1, true) ~= nil)
+  end)
+
+  it("commit (一括) finalizes all remaining kana segments at once", function()
+    local s = new()
+    type_in(s, "kyou;A;wo")
+    s:start_conversion()
+    local final = s:commit() -- 残り kana も既定候補で convert+commit
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+    assert.is_true(final:find("A", 1, true) ~= nil)
+  end)
+end)
+
 describe("vime.session CONVERTING (real anthy)", function()
   it("enters converting with the first segment focused", function()
     local s = new()

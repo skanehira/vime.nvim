@@ -103,18 +103,33 @@ local function open_popup_window()
 end
 
 -- 現在の session 状態をバッファ＋ハイライトへ反映する。popup は開いていれば追従表示する。
+-- セグメント混在(kana/latin/confirmed/converting 中の注目 kana)を順番に描く。
 local function render()
   ui.clear(st.buf)
   local s = st.session
-  if s:state() == "converting" then
-    local view = s:segments()
-    set_region_text(table.concat(view.list))
-    ui.highlight_segments(st.buf, st.row, st.start_col, view.list, view.current)
-  else
-    local kana = s:preedit()
-    set_region_text(kana)
-    if kana ~= "" then
-      ui.highlight_preedit(st.buf, st.row, st.start_col, st.len)
+  local view = s:preedit_segments()
+  -- 1. プリエディット文字列を組み立ててバッファへ書き込み
+  local parts = {}
+  for _, seg in ipairs(view) do
+    parts[#parts + 1] = (seg.kind == "segments") and table.concat(seg.list) or seg.text
+  end
+  set_region_text(table.concat(parts))
+  -- 2. 各セグメントを byte offset で進めながらハイライト
+  --    未変換 kana と latin は同じ下線(VimeUnconfirmed)。confirmed はハイライトなし。
+  local off = st.start_col
+  for _, seg in ipairs(view) do
+    if seg.kind == "kana" or seg.kind == "latin" then
+      if #seg.text > 0 then
+        ui.highlight_preedit(st.buf, st.row, off, #seg.text)
+      end
+      off = off + #seg.text
+    elseif seg.kind == "confirmed" then
+      off = off + #seg.text -- 確定済みはハイライトなし
+    elseif seg.kind == "segments" then
+      ui.highlight_segments(st.buf, st.row, off, seg.list, seg.current)
+      for _, t in ipairs(seg.list) do
+        off = off + #t
+      end
     end
   end
   if st.popup_open then
@@ -199,7 +214,13 @@ function M.on_commit()
     insert_literal("\n") -- 未確定なし: 通常の改行
     return
   end
-  finalize(st.session:commit())
+  -- 混在変換: CR ごとに次 kana セグメントへ進行。継続中(nil)なら描画し直す。
+  local text = st.session:commit_step()
+  if text == nil then
+    render()
+  else
+    finalize(text)
+  end
 end
 
 function M.on_cancel()
@@ -350,7 +371,7 @@ end
 
 local function enable()
   st.enabled = true
-  st.session = session.new(anthy)
+  st.session = session.new(anthy, { ascii_toggle = st.cfg.keymaps.ascii_toggle })
   st.buf = api.nvim_get_current_buf()
   local cur = api.nvim_win_get_cursor(0)
   st.row = cur[1] - 1

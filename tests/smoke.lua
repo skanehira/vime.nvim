@@ -132,7 +132,22 @@ do
   check("F10英小文字(foo)", (lines(buf)[1] or "") == "foo")
 end
 
--- 13) SKK 辞書取り込み(CLI: lua/vime/import.lua)→ 別 anthy context で登録語が候補になる
+-- 13) ASCII モード混在: 「きょうは;iPhone;をかった」→ Space で順次変換 → 末尾は kana
+do
+  local buf = reset()
+  feed("i<C-j>kyouha;iPhone;wokatta<Space><CR><CR><Esc>")
+  -- 1回目 Space: 最初の kana(きょうは)を converting
+  -- 1回目 CR: きょうは 確定 → 次の kana(をかった)を自動 converting
+  -- 2回目 CR: をかった 確定 → 全終了
+  local l = lines(buf)[1] or ""
+  -- latin "iPhone" が中央にリテラルで残り、先頭は「今日」系
+  check(
+    "ASCII モード混在(今日…iPhone…)",
+    l:sub(1, #"今日") == "今日" and l:find("iPhone", 1, true) ~= nil and l ~= "きょうはiPhoneをかった"
+  )
+end
+
+-- 14) SKK 辞書取り込み(CLI: lua/vime/import.lua)→ 別 anthy context で登録語が候補になる
 do
   local dictpath = vim.fn.tempname()
   vim.fn.writefile({

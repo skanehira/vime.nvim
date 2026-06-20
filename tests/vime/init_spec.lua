@@ -163,6 +163,31 @@ describe("vime end-to-end", function()
     assert.are.equal("わたし", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
   end)
 
+  it("steps through mixed kana segments via ASCII mode (; toggle)", function()
+    vime.setup({ anthy = { lib = LIB } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    vime.toggle()
+    for ch in ("kyou;A;wo"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    -- preedit: kana(きょう) + latin(A) + kana(を)
+    assert.are.equal("きょうAを", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+
+    vime.on_convert() -- 先頭 kana(きょう) を変換
+    vime.on_commit() -- 1段目: きょう 確定 → 次の kana(を) を自動 converting
+    vime.on_commit() -- 2段目: を 確定 → 全終了
+
+    local result = api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+    -- 「今日」系の変換 + リテラル "A" + を の変換結果
+    assert.are.equal("今日", result:sub(1, #"今日"))
+    assert.is_not_nil(result:find("A", 1, true), "latin A はリテラルで残る")
+
+    vime.toggle()
+  end)
+
   it("converts the preedit to lowercase letters on F10", function()
     vime.setup({ anthy = { lib = LIB } })
     local buf = api.nvim_create_buf(false, true)
