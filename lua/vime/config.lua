@@ -33,6 +33,10 @@ M.defaults = {
     -- nvim_set_hl 互換テーブル({ bg = "#...", fg = "#...", bold = true, ... })で明示上書き可。
     highlight = nil,
   },
+  integrations = {
+    -- nvim-cmp 連携。true で vime モード ON 中は cmp の補完を抑止する。
+    nvim_cmp = false,
+  },
 }
 
 -- OS ごとの共有ライブラリ拡張子(macOS=dylib / その他=so)。

@@ -47,6 +47,17 @@ describe("vime.config.merge", function()
     assert.are.equal("直", c.mode_notify.labels.direct) -- 既定維持
     assert.are.equal(1000, c.mode_notify.duration) -- 既定維持
   end)
+
+  it("defaults integrations to all disabled", function()
+    -- 外部プラグイン連携は opt-in。既定は無効。
+    local c = config.merge(nil)
+    assert.is_false(c.integrations.nvim_cmp)
+  end)
+
+  it("turns on nvim_cmp integration when requested", function()
+    local c = config.merge({ integrations = { nvim_cmp = true } })
+    assert.is_true(c.integrations.nvim_cmp)
+  end)
 end)
 
 describe("vime.config.find_anthy_lib", function()

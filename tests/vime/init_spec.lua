@@ -581,3 +581,24 @@ describe("vime converting-only keymaps follow state transitions", function()
     assert.is_false(any_mapped(buf))
   end)
 end)
+
+describe("vime integrations wiring", function()
+  local function vime_insert_enter_autocmds()
+    return vim.api.nvim_get_autocmds({ group = "vime", event = "InsertEnter" })
+  end
+
+  it("does not register the nvim_cmp InsertEnter autocmd by default", function()
+    -- 既定では integrations.nvim_cmp = false なので結線しない。
+    vime.setup({ anthy = { lib = LIB } })
+    assert.are.equal(0, #vime_insert_enter_autocmds())
+  end)
+
+  it("registers an InsertEnter autocmd when integrations.nvim_cmp is enabled", function()
+    -- integrations.nvim_cmp = true で attach が走り、cmp 上書き用の InsertEnter
+    -- (once) autocmd が "vime" augroup に登録される。
+    vime.setup({ anthy = { lib = LIB }, integrations = { nvim_cmp = true } })
+    assert.are.equal(1, #vime_insert_enter_autocmds())
+    -- 後続テストへ漏れないよう既定構成で setup し直して augroup を clear する。
+    vime.setup({ anthy = { lib = LIB } })
+  end)
+end)

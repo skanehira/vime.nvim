@@ -520,6 +520,10 @@ function M.setup(opts)
       M.on_insert_leave()
     end,
   })
+
+  if st.cfg.integrations.nvim_cmp then
+    require("vime.integrations.nvim_cmp").attach(M.is_enabled, group)
+  end
 end
 
 return M
