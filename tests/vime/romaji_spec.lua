@@ -180,6 +180,26 @@ describe("vime.romaji.to_kana", function()
     })
   end)
 
+  it("converts Google IME zXX symbol shortcuts", function()
+    check({
+      { "zh", "←" },
+      { "zj", "↓" },
+      { "zk", "↑" },
+      { "zl", "→" },
+      { "z-", "〜" },
+      { "z,", "‥" },
+      { "z.", "…" },
+      { "z/", "・" },
+      { "z[", "『" },
+      { "z]", "』" },
+      -- 既存の z 系(za 等)と衝突しない
+      { "za", "ざ" },
+      { "zya", "じゃ" },
+      -- ローマ字混在
+      { "kyouhazh", "きょうは←" },
+    })
+  end)
+
   it("converts hiragana to katakana (others unchanged)", function()
     assert.are.equal("キョウ", romaji.to_katakana("きょう"))
     assert.are.equal("ファイル", romaji.to_katakana("ふぁいる"))
