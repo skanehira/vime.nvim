@@ -108,7 +108,7 @@ describe("vime.keymap", function()
     assert.is_nil(find_map(buf, "a"))
   end)
 
-  it("attach does not map converting-only keys (C-f/C-b/C-n/C-p/C-o/C-i)", function()
+  it("attach does not map converting-only keys (C-f/C-b/C-n/C-p/C-o/C-i/C-r)", function()
     local buf = api.nvim_create_buf(false, true)
     local function noop() end
     local handlers = {
@@ -125,10 +125,11 @@ describe("vime.keymap", function()
       alphabet = noop,
       next_candidate = noop,
       prev_candidate = noop,
+      register_word = noop,
     }
     keymap.attach(buf, config.merge(nil), handlers)
 
-    for _, lhs in ipairs({ "<C-F>", "<C-B>", "<C-N>", "<C-P>", "<C-O>", "<C-I>" }) do
+    for _, lhs in ipairs({ "<C-F>", "<C-B>", "<C-N>", "<C-P>", "<C-O>", "<C-I>", "<C-R>" }) do
       assert.is_nil(
         find_map(buf, lhs) or find_map(buf, lhs:lower()),
         lhs .. " should not be mapped by attach() (only by attach_converting())"
@@ -158,6 +159,9 @@ describe("vime.keymap", function()
       shrink = function()
         calls.shrink = true
       end,
+      register_word = function()
+        calls.register_word = true
+      end,
     }
     keymap.attach_converting(buf, config.merge(nil), handlers)
 
@@ -168,6 +172,7 @@ describe("vime.keymap", function()
       { upper = "<C-P>", lower = "<C-p>", call = "prev_candidate" },
       { upper = "<C-O>", lower = "<C-o>", call = "expand" },
       { upper = "<C-I>", lower = "<C-i>", call = "shrink" },
+      { upper = "<C-R>", lower = "<C-r>", call = "register_word" },
     }) do
       local m = find_map(buf, case.upper) or find_map(buf, case.lower)
       assert.is_not_nil(m, case.lower .. " should be mapped")
@@ -185,6 +190,7 @@ describe("vime.keymap", function()
       prev_candidate = function() end,
       expand = function() end,
       shrink = function() end,
+      register_word = function() end,
     }
     keymap.attach_converting(buf, config.merge(nil), handlers)
     keymap.attach_converting(buf, config.merge(nil), handlers) -- 2回目も例外を出さない
@@ -210,6 +216,7 @@ describe("vime.keymap", function()
       alphabet = noop,
       next_candidate = noop,
       prev_candidate = noop,
+      register_word = noop,
     }
     keymap.attach(buf, config.merge(nil), common_handlers)
     keymap.attach_converting(buf, config.merge(nil), {
@@ -219,6 +226,7 @@ describe("vime.keymap", function()
       prev_candidate = noop,
       expand = noop,
       shrink = noop,
+      register_word = noop,
     })
     keymap.detach_converting(buf)
 
@@ -229,6 +237,7 @@ describe("vime.keymap", function()
     -- converting 限定キーは消える
     assert.is_nil(find_map(buf, "<C-F>") or find_map(buf, "<C-f>"))
     assert.is_nil(find_map(buf, "<C-O>") or find_map(buf, "<C-o>"))
+    assert.is_nil(find_map(buf, "<C-R>") or find_map(buf, "<C-r>"))
   end)
 
   it("detach_converting is idempotent when called without attach", function()
@@ -254,6 +263,7 @@ describe("vime.keymap", function()
       alphabet = noop,
       next_candidate = noop,
       prev_candidate = noop,
+      register_word = noop,
     }
     keymap.attach(buf, config.merge(nil), common_handlers)
     keymap.attach_converting(buf, config.merge(nil), {
@@ -263,6 +273,7 @@ describe("vime.keymap", function()
       prev_candidate = noop,
       expand = noop,
       shrink = noop,
+      register_word = noop,
     })
     keymap.detach(buf)
 

@@ -8,6 +8,7 @@ describe("vime.config.merge", function()
     assert.are.equal("<C-n>", c.keymaps.next_candidate)
     assert.are.equal("<F10>", c.keymaps.alphabet)
     assert.are.equal(";", c.keymaps.ascii_toggle)
+    assert.are.equal("<C-r>", c.keymaps.register_word) -- 辞書登録キーの既定
   end)
 
   it("overrides only the specified keys and keeps the rest", function()

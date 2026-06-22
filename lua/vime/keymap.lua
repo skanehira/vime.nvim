@@ -23,6 +23,7 @@ local CONVERTING_ONLY = {
   "prev_candidate",
   "expand",
   "shrink",
+  "register_word",
 }
 
 local registered = {} -- buf -> {lhs,...} (常時マッピング)

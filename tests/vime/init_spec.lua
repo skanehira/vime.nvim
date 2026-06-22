@@ -656,6 +656,121 @@ describe("vime undo blocks", function()
   end)
 end)
 
+describe("vime register_word (C-r)", function()
+  local anthy = require("vime.anthy")
+
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  -- vim.ui.input を answer を返すコールバックでモックして本処理を実行する。
+  local function with_ui_input(answer, fn)
+    local saved = vim.ui.input
+    vim.ui.input = function(_, on_confirm)
+      on_confirm(answer)
+    end
+    local ok, err = pcall(fn)
+    vim.ui.input = saved
+    assert(ok, err)
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("commits the focused segment with the user-entered word while converting", function()
+    -- 辞書登録 API が無い環境(libanthy-dev 等)では検証不能なのでスキップ。
+    if not anthy.register_word("ぶいめてすとa", "ignore") then
+      return
+    end
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert() -- converting へ
+
+    with_ui_input("テスト語", function()
+      vime.on_register_word()
+    end)
+
+    assert.are.equal("テスト語", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal("composing", vime.mode().state) -- 確定後は composing に戻る
+  end)
+
+  it("leaves the preedit unchanged when the prompt is canceled", function()
+    if not anthy.register_word("ぶいめてすとb", "ignore") then
+      return
+    end
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert()
+    local before = api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+
+    with_ui_input(nil, function()
+      vime.on_register_word()
+    end)
+
+    assert.are.equal(before, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal("converting", vime.mode().state) -- converting のまま
+  end)
+
+  it("leaves the preedit unchanged when the entered word is blank", function()
+    if not anthy.register_word("ぶいめてすとc", "ignore") then
+      return
+    end
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_convert()
+    local before = api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+
+    with_ui_input("   ", function() -- 空白のみ
+      vime.on_register_word()
+    end)
+
+    assert.are.equal(before, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal("converting", vime.mode().state)
+  end)
+
+  it("does nothing while composing (not converting)", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    -- composing のまま on_register_word を呼ぶ。vim.ui.input は呼ばれない想定。
+    local prompted = false
+    local saved = vim.ui.input
+    vim.ui.input = function(_, _)
+      prompted = true
+    end
+    vime.on_register_word()
+    vim.ui.input = saved
+
+    assert.is_false(prompted)
+    assert.are.equal("きょう", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal("composing", vime.mode().state)
+  end)
+end)
+
 describe("vime integrations wiring", function()
   local function vime_insert_enter_autocmds()
     return vim.api.nvim_get_autocmds({ group = "vime", event = "InsertEnter" })

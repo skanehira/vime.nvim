@@ -384,6 +384,39 @@ function M.on_prev_candidate()
   end
 end
 
+-- C-r: 注目文節の読みをユーザ入力の単語で辞書登録し、その単語で確定挿入する。
+-- converting 中のみ動作。プロンプトの cancel(nil) や空入力では未確定を維持する。
+function M.on_register_word()
+  if not st.enabled or st.session:state() ~= "converting" then
+    return
+  end
+  local yomi = st.session:current_segment_yomi()
+  if not yomi or yomi == "" then
+    return
+  end
+  vim.ui.input({ prompt = string.format("「%s」に登録する単語: ", yomi) }, function(word)
+    if word == nil then
+      return -- ユーザがキャンセル
+    end
+    word = vim.trim(word)
+    if word == "" then
+      return
+    end
+    if not anthy.register_word(yomi, word) then
+      vim.notify("vime: 辞書登録に失敗しました(libanthydic 未検出?)", vim.log.levels.WARN)
+      return
+    end
+    -- プロンプト中に状態が変わっていないか保護
+    if not st.enabled or not (st.buf and api.nvim_buf_is_valid(st.buf)) then
+      return
+    end
+    if st.session:state() ~= "converting" then
+      return
+    end
+    finalize(st.session:commit_with_replacement(word))
+  end)
+end
+
 ----------------------------------------------------------------------
 -- モード制御
 ----------------------------------------------------------------------
@@ -421,6 +454,7 @@ handlers = function()
     katakana = M.on_katakana,
     alphabet = M.on_alphabet,
     kill = M.on_kill,
+    register_word = M.on_register_word,
   }
 end
 
@@ -501,6 +535,7 @@ local NOTIFY_TARGETS = {
   "on_katakana",
   "on_alphabet",
   "on_kill",
+  "on_register_word",
   "on_insert_leave",
   "toggle",
 }

@@ -19,6 +19,7 @@ M.defaults = {
     katakana = "<F7>",
     alphabet = "<F10>",
     ascii_toggle = ";", -- ASCII モード入退室(nil で無効化)
+    register_word = "<C-r>", -- converting 中に注目文節を辞書登録
   },
   mode_notify = {
     enabled = true, -- モード切替時にカーソル下へ短時間 popup を出す
