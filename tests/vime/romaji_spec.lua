@@ -226,9 +226,8 @@ describe("vime.romaji.to_kana with custom table", function()
   it("keeps hatsuon/sokuon look-ahead logic regardless of the table", function()
     -- 撥音 ん・促音 っ・大文字英字ランの判定はテーブル非依存で常に有効
     local custom = { a = "ア", ka = "カ", ki = "キ" }
-    -- 撥音(n → ん): な行が table に無くてもロジックは ん を出す。
-    -- ただし n+vowel は fall-through、最長一致で見て tbl[na] が無いので "n" "a" と分解されて
-    -- "n" の最長一致も失敗するため最終的に生のまま出る → ここでは "nn" 系で検証
+    -- 撥音 ん: custom に "nn" も "n" も無いので最長一致が外れ、撥音 look-ahead が効く
+    -- (nx='n', nx2='k' → "ん" + i+=2 → 次に "ka" がテーブルヒット)
     assert.are.equal("んカ", romaji.to_kana("nnka", custom))
     -- 促音 っ: ka が同子音連続(kka)で っ が前置される
     assert.are.equal("っカ", romaji.to_kana("kka", custom))
