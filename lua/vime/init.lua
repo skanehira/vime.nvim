@@ -458,16 +458,33 @@ handlers = function()
   }
 end
 
-local function enable()
-  st.enabled = true
-  st.session = session.new(anthy, { ascii_toggle = st.cfg.keymaps.ascii_toggle })
-  st.buf = api.nvim_get_current_buf()
+-- IME ターゲットを現在のバッファに合わせる。
+-- 旧バッファのマッピング・extmark を掃除し、新バッファに keymap を attach、
+-- カーソル位置を再アンカーする。enable() と InsertEnter autocmd の両方から呼ばれる。
+local function attach_to_current_buf()
+  local new_buf = api.nvim_get_current_buf()
+  if st.buf and st.buf ~= new_buf then
+    -- 旧バッファが wipe 済みなら Vim 側で buffer-local maps は既に消えているので
+    -- detach を呼ばない(~104 回の vim.keymap.del を節約)。
+    if api.nvim_buf_is_valid(st.buf) then
+      ui.clear(st.buf)
+      keymap.detach(st.buf)
+    end
+    st.converting_keys_attached = false
+  end
+  st.buf = new_buf
   local cur = api.nvim_win_get_cursor(0)
   st.row = cur[1] - 1
   st.start_col = cur[2]
   st.len = 0
   st.popup_open = false
   keymap.attach(st.buf, st.cfg, handlers())
+end
+
+local function enable()
+  st.enabled = true
+  st.session = session.new(anthy, { ascii_toggle = st.cfg.keymaps.ascii_toggle })
+  attach_to_current_buf()
 end
 
 local function disable()
