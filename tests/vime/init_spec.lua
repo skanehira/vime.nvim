@@ -771,22 +771,75 @@ describe("vime register_word (C-r)", function()
   end)
 end)
 
+describe("vime follows buffer switches", function()
+  local function feed(keys)
+    api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), "tx", false)
+  end
+
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("keeps hiragana input working in another buffer entered while ON", function()
+    -- バッファ A でひらがな入力できることを確認しておく。
+    local buf_a = fresh_buf()
+    vime.toggle()
+    feed("iaiueo<Esc>")
+    assert.are.equal("あいうえお", api.nvim_buf_get_lines(buf_a, 0, 1, false)[1])
+
+    -- IME ON のまま別バッファ B に移動 → 挿入モードでローマ字を打つ。
+    local buf_b = fresh_buf()
+    assert.is_true(vime.is_enabled())
+    feed("ikakikukeko<Esc>")
+
+    -- B にひらがなが入る(現状は ASCII の "kakikukeko" がそのまま残ってしまう)。
+    assert.are.equal("かきくけこ", api.nvim_buf_get_lines(buf_b, 0, 1, false)[1])
+    -- 旧バッファ A は影響を受けない。
+    assert.are.equal("あいうえお", api.nvim_buf_get_lines(buf_a, 0, 1, false)[1])
+  end)
+end)
+
 describe("vime integrations wiring", function()
-  local function vime_insert_enter_autocmds()
-    return vim.api.nvim_get_autocmds({ group = "vime", event = "InsertEnter" })
+  -- "vime" augroup の InsertEnter のうち、nvim-cmp 連携用のものだけを数える
+  -- (常駐の buffer-follow autocmd は除外する)。
+  local function nvim_cmp_insert_enter_autocmds()
+    local result = {}
+    for _, cmd in ipairs(vim.api.nvim_get_autocmds({ group = "vime", event = "InsertEnter" })) do
+      if cmd.desc == "vime: nvim-cmp integration" then
+        result[#result + 1] = cmd
+      end
+    end
+    return result
   end
 
   it("does not register the nvim_cmp InsertEnter autocmd by default", function()
     -- 既定では integrations.nvim_cmp = false なので結線しない。
     vime.setup({ anthy = { lib = LIB } })
-    assert.are.equal(0, #vime_insert_enter_autocmds())
+    assert.are.equal(0, #nvim_cmp_insert_enter_autocmds())
   end)
 
   it("registers an InsertEnter autocmd when integrations.nvim_cmp is enabled", function()
     -- integrations.nvim_cmp = true で attach が走り、cmp 上書き用の InsertEnter
     -- (once) autocmd が "vime" augroup に登録される。
     vime.setup({ anthy = { lib = LIB }, integrations = { nvim_cmp = true } })
-    assert.are.equal(1, #vime_insert_enter_autocmds())
+    assert.are.equal(1, #nvim_cmp_insert_enter_autocmds())
     -- 後続テストへ漏れないよう既定構成で setup し直して augroup を clear する。
     vime.setup({ anthy = { lib = LIB } })
   end)

@@ -584,6 +584,28 @@ function M.setup(opts)
     end,
   })
 
+  -- IME ON のままユーザーが別バッファで挿入モードに入ったら、IME ターゲットを
+  -- その新バッファへ追従させる。BufEnter は telescope プレビュー等で大量発火する
+  -- ため避け、本当に編集を開始する瞬間(InsertEnter)に絞っている。
+  -- terminal/prompt buftype は IME が握ると UX が壊れるので除外する。
+  api.nvim_create_autocmd("InsertEnter", {
+    group = group,
+    desc = "vime: follow buffer switches",
+    callback = function(args)
+      if not st.enabled then
+        return
+      end
+      if args.buf == st.buf then
+        return
+      end
+      local bt = vim.bo[args.buf].buftype
+      if bt == "terminal" or bt == "prompt" then
+        return
+      end
+      attach_to_current_buf()
+    end,
+  })
+
   if st.cfg.integrations.nvim_cmp then
     require("vime.integrations.nvim_cmp").attach(M.is_enabled, group)
   end

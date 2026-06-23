@@ -43,6 +43,7 @@ function M.attach(get_vime_active, group)
   vim.api.nvim_create_autocmd("InsertEnter", {
     group = group,
     once = true,
+    desc = "vime: nvim-cmp integration",
     callback = function()
       local ok, cmp = pcall(require, "cmp")
       if not ok then
