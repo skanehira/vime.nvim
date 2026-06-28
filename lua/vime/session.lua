@@ -8,6 +8,7 @@ local M = {}
 local Session = {}
 Session.__index = Session
 
+-- anthy_module: setup 済みの anthy(.new_session() を持つ)。テストでも同じ実 anthy を渡す(DIP で差し替え可能)。
 -- opts.ascii_toggle: ASCII モード入退室文字(既定 ";"、nil で無効化)。
 -- opts.romaji_table: ローマ字→かなのカスタムテーブル。nil なら romaji モジュールの既定(wapuro)。
 function M.new(anthy_module, opts)
