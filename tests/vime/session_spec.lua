@@ -40,6 +40,14 @@ describe("vime.session with custom romaji table", function()
     type_in(s, "ka")
     assert.are.equal("か", s:preedit()) -- 既定の wapuro
   end)
+
+  it("uses the custom romaji table for katakana commit", function()
+    -- 既定では ka="か", ki="き" だが、入れ替えてカスタムが効いていることを示す。
+    local custom = { ka = "き", ki = "か" }
+    local s = session.new(anthy, { romaji_table = custom })
+    type_in(s, "kaki")
+    assert.are.equal("キカ", s:commit_katakana()) -- 既定の "カキ" でなく "キカ"
+  end)
 end)
 
 describe("vime.session COMPOSING", function()

@@ -319,6 +319,24 @@ describe("vime end-to-end", function()
 
     vime.toggle()
   end)
+
+  it("threads a custom romaji table through setup -> enable -> on_input", function()
+    -- 既定では ka="か", ki="き" だが、入れ替えてカスタムが結線されていることを示す。
+    -- setup() の romaji.table が enable() 経由で session に届くかの結線回帰テスト。
+    local custom = { ka = "き", ki = "か" }
+    vime.setup({ anthy = { lib = LIB }, romaji = { table = custom } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_win_set_cursor(0, { 1, 0 })
+
+    vime.toggle()
+    for ch in ("kaki"):gmatch(".") do
+      vime.on_input(ch)
+    end
+
+    -- 未確定 preedit はそのままバッファに反映される(既定なら "かき")
+    assert.are.equal("きか", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
 end)
 
 describe("vime candidate popup", function()
