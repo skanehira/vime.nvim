@@ -211,3 +211,53 @@ describe("vime.romaji.to_kana", function()
     assert.are.equal("きょうはいいてんきだね", romaji.to_kana("kyouhaiitenkidane"))
   end)
 end)
+
+describe("vime.romaji.to_kana with custom table", function()
+  it("uses the given table instead of the default (full replacement)", function()
+    -- 完全置換: 既定にあるエントリでも custom_table に無ければマッチしない
+    local custom = { ki = "き", ku = "く" }
+    assert.are.equal("き", romaji.to_kana("ki", custom))
+    assert.are.equal("く", romaji.to_kana("ku", custom))
+    -- "ka" は custom に無い → 既定にあっても fallback しない(完全置換) → 生のまま
+    assert.are.equal("ka", romaji.to_kana("ka", custom))
+    assert.are.equal("a", romaji.to_kana("a", custom))
+  end)
+
+  it("keeps hatsuon/sokuon look-ahead logic regardless of the table", function()
+    -- 撥音 ん・促音 っ・大文字英字ランの判定はテーブル非依存で常に有効
+    local custom = { a = "ア", ka = "カ", ki = "キ" }
+    -- 撥音 ん: custom に "nn" も "n" も無いので最長一致が外れ、撥音 look-ahead が効く
+    -- (nx='n', nx2='k' → "ん" + i+=2 → 次に "ka" がテーブルヒット)
+    assert.are.equal("んカ", romaji.to_kana("nnka", custom))
+    -- 促音 っ: ka が同子音連続(kka)で っ が前置される
+    assert.are.equal("っカ", romaji.to_kana("kka", custom))
+  end)
+
+  it("exposes the default table as romaji.default_table", function()
+    assert.is_table(romaji.default_table)
+    assert.are.equal("あ", romaji.default_table.a)
+    assert.are.equal("きょ", romaji.default_table.kyo)
+  end)
+
+  it("falls back to the default table when custom_table is nil", function()
+    assert.are.equal("きょう", romaji.to_kana("kyou", nil))
+    assert.are.equal("きょう", romaji.to_kana("kyou")) -- 引数省略でも同じ
+  end)
+
+  it("prefers the custom table over hatsuon/sokuon look-ahead", function()
+    -- ACT 等で `nh`/`tt`/`ss` のような既定 look-ahead と衝突する打鍵を
+    -- カスタムテーブルで上書きできること(撥音/促音より先にテーブルが効く)。
+    local custom = {
+      nha = "にゃ", -- n+子音 だが撥音にせずテーブル優先
+      tt = "ちゅう", -- 同子音連続だが促音にせずテーブル優先
+      ss = "しょう",
+      ["'"] = "っ", -- ACT の促音キー
+    }
+    assert.are.equal("にゃ", romaji.to_kana("nha", custom))
+    assert.are.equal("ちゅう", romaji.to_kana("tt", custom))
+    assert.are.equal("しょう", romaji.to_kana("ss", custom))
+    -- ACT 風: ka'ta → か + っ + ta(table 未定義) → "かっta"
+    custom.ka = "か"
+    assert.are.equal("かっta", romaji.to_kana("ka'ta", custom))
+  end)
+end)

@@ -37,8 +37,8 @@ config ──► (各モジュールが参照)
 init ──► 全モジュールを結線するコントローラ
 ```
 
-- **副作用はすべて `anthy.lua` に閉じ込める**。FFI と学習の永続化がここに入る。`session` は `anthy_module` を **コンストラクタ注入**（`session.new(anthy_module)`）で受け取り、テストでも実 anthy を注入する（fake は廃止）。
-- **`romaji.lua` は純粋関数のみ**。FFI も Vim API も触らない。テストは入出力比較で完結する。
+- **副作用はすべて `anthy.lua` に閉じ込める**。FFI と学習の永続化がここに入る。`session` は `anthy_module` を **コンストラクタ注入**（`session.new(anthy_module, romaji_table?)`）で受け取り、テストでも実 anthy を注入する（fake は廃止）。`romaji_table` はカスタムローマ字テーブル（nil で既定 wapuro）。
+- **`romaji.lua` は純粋関数のみ**。FFI も Vim API も触らない。テストは入出力比較で完結する。`to_kana(s, custom_table?)` の第2引数で配列を完全置換できる（撥音/促音/英字ランの look-ahead はテーブル非依存）。評価順序は **テーブル最長一致 → 撥音 → 促音 → 未知文字フォールバック**。テーブル先行なので、ACT 等で `nh`/`tt`/`ss` を独自定義すれば既定 look-ahead と衝突しない。
 - **`init.lua` がコントローラ**。バッファ・カーソル位置・未確定領域(`start_col`/`len`)・popup 状態を保持し、`session` の状態変化を `ui` 描画に流す唯一の場所。新しいハンドラを足すときも `init.lua` の `handlers()` テーブル経由で `keymap.lua` に渡す。
 
 ### 必ず守る不変条件
@@ -58,4 +58,4 @@ init ──► 全モジュールを結線するコントローラ
 - 実装は `docs/TODO.md` のフェーズ単位で TDD（RED → GREEN → REFACTOR → REVIEW → CHECK）。テストファイルは `tests/vime/<module>_spec.lua` に置く（コロケーションではなく `tests/` 配下のミラー構造）。
 - コミットは Conventional Commit + emoji + `[STRUCTURAL]` / `[BEHAVIORAL]` プレフィックスを必ず付ける（既存履歴に合わせる）。構造変更と動作変更は別コミットに分ける。
 - LSP 警告は `lua_ls` を `.luarc.json`（LuaJIT + Neovim グローバル + busted DSL）で運用している。busted の `describe`/`it`/`assert` は warning にならない。
-- ローマ字テーブルや拗音/促音/撥音のロジックを変えるときは `tests/vime/romaji_spec.lua` のケースを更新する。
+- ローマ字テーブルや拗音/促音/撥音のロジックを変えるときは `tests/vime/romaji_spec.lua` のケースを更新する。カスタムテーブル機能を触るときは `tests/vime/{romaji,session,config}_spec.lua` のカスタム関連ケースもセットで確認する。

@@ -5,6 +5,12 @@ M.defaults = {
   anthy = {
     lib = nil, -- 未指定なら既知パスを探索
   },
+  romaji = {
+    -- ローマ字→かなテーブル。nil なら既定(wapuro / vime.romaji.default_table)。
+    -- 非 nil の場合は完全置換(マージしない)。act 等の独自配列を使うときに渡す。
+    -- マージしたい場合はユーザ側で vim.tbl_extend("force", require("vime.romaji").default_table, {...}) などを行う。
+    table = nil,
+  },
   keymaps = {
     toggle = "<C-j>",
     convert = "<Space>",

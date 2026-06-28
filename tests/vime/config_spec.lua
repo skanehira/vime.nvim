@@ -59,6 +59,18 @@ describe("vime.config.merge", function()
     local c = config.merge({ integrations = { nvim_cmp = true } })
     assert.is_true(c.integrations.nvim_cmp)
   end)
+
+  it("defaults romaji.table to nil (use built-in wapuro table)", function()
+    local c = config.merge(nil)
+    assert.is_nil(c.romaji.table)
+  end)
+
+  it("replaces (not merges) romaji.table when provided", function()
+    -- romaji.table は完全置換ポリシー。既定は nil なのでユーザ値がそのまま入る。
+    local user_table = { a = "ア", ka = "カ" }
+    local c = config.merge({ romaji = { table = user_table } })
+    assert.are.equal(user_table, c.romaji.table)
+  end)
 end)
 
 describe("vime.config.find_anthy_lib", function()

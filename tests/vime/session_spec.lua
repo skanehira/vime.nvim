@@ -18,6 +18,38 @@ local function type_in(s, str)
   end
 end
 
+describe("vime.session with custom romaji table", function()
+  it("uses the custom romaji table for preedit", function()
+    local custom = { a = "ア", ka = "カ", ki = "キ" }
+    local s = session.new(anthy, { romaji_table = custom })
+    type_in(s, "ka")
+    assert.are.equal("カ", s:preedit()) -- 既定の "か" でなく custom の "カ"
+  end)
+
+  it("uses the custom table on backspace too", function()
+    local custom = { a = "ア", ki = "キ", ku = "ク" }
+    local s = session.new(anthy, { romaji_table = custom })
+    type_in(s, "kuki") -- ク + キ
+    assert.are.equal("クキ", s:preedit())
+    s:backspace()
+    assert.are.equal("ク", s:preedit()) -- キ 単位で削除(2バイトでなく1かな単位)
+  end)
+
+  it("uses the default table when no opts is passed", function()
+    local s = session.new(anthy)
+    type_in(s, "ka")
+    assert.are.equal("か", s:preedit()) -- 既定の wapuro
+  end)
+
+  it("uses the custom romaji table for katakana commit", function()
+    -- 既定では ka="か", ki="き" だが、入れ替えてカスタムが効いていることを示す。
+    local custom = { ka = "き", ki = "か" }
+    local s = session.new(anthy, { romaji_table = custom })
+    type_in(s, "kaki")
+    assert.are.equal("キカ", s:commit_katakana()) -- 既定の "カキ" でなく "キカ"
+  end)
+end)
+
 describe("vime.session COMPOSING", function()
   it("accumulates romaji into a kana preedit", function()
     local s = new()

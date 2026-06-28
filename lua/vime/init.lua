@@ -483,7 +483,10 @@ end
 
 local function enable()
   st.enabled = true
-  st.session = session.new(anthy, { ascii_toggle = st.cfg.keymaps.ascii_toggle })
+  st.session = session.new(anthy, {
+    ascii_toggle = st.cfg.keymaps.ascii_toggle,
+    romaji_table = st.cfg.romaji.table,
+  })
   attach_to_current_buf()
 end
 

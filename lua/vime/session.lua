@@ -10,6 +10,7 @@ Session.__index = Session
 
 -- anthy_module: setup 済みの anthy(.new_session() を持つ)。テストでも同じ実 anthy を渡す(DIP で差し替え可能)。
 -- opts.ascii_toggle: ASCII モード入退室文字(既定 ";"、nil で無効化)。
+-- opts.romaji_table: ローマ字→かなのカスタムテーブル。nil なら romaji モジュールの既定(wapuro)。
 function M.new(anthy_module, opts)
   opts = opts or {}
   local toggle = opts.ascii_toggle
@@ -19,6 +20,7 @@ function M.new(anthy_module, opts)
   return setmetatable({
     _anthy = anthy_module, -- anthy セッションを生成するモジュール
     anthy = nil, -- 生成した anthy セッション(変換中に再利用)
+    _romaji_table = opts.romaji_table, -- nil なら romaji.default_table が使われる
     _state = "composing",
     _buf = {}, -- セグメント配列。各要素: {kind="kana", romaji=...} or {kind="latin", text=...}
     _ascii_toggle = toggle, -- ASCII モード入退室文字
@@ -66,7 +68,7 @@ function Session:preedit_segments()
       local segs = self:segments()
       view[#view + 1] = { kind = "segments", list = segs.list, current = segs.current }
     elseif seg.kind == "kana" then
-      view[#view + 1] = { kind = "kana", text = romaji.to_kana(seg.romaji) }
+      view[#view + 1] = { kind = "kana", text = romaji.to_kana(seg.romaji, self._romaji_table) }
     else
       view[#view + 1] = { kind = seg.kind, text = seg.text } -- latin / confirmed
     end
@@ -83,7 +85,7 @@ function Session:preedit()
     if self._state == "converting" and i == self._active_kana_idx then
       parts[i] = table.concat(self:segments().list)
     elseif seg.kind == "kana" then
-      parts[i] = romaji.to_kana(seg.romaji)
+      parts[i] = romaji.to_kana(seg.romaji, self._romaji_table)
     else
       parts[i] = seg.text -- latin / confirmed
     end
@@ -213,10 +215,10 @@ function Session:backspace()
     return
   end
   -- kana セグメント: ローマ字を末尾から削り、未完成英字で終わらず・かな数が1減るまで戻す。
-  local before = uchars(romaji.to_kana(t.romaji))
+  local before = uchars(romaji.to_kana(t.romaji, self._romaji_table))
   while #t.romaji > 0 do
     t.romaji = t.romaji:sub(1, #t.romaji - 1)
-    local kana = romaji.to_kana(t.romaji)
+    local kana = romaji.to_kana(t.romaji, self._romaji_table)
     if not kana:match("[A-Za-z]$") and uchars(kana) < before then
       break
     end
@@ -251,7 +253,7 @@ end
 -- 読みが空なら(本来作られないはずだが)何もせず false を返す。
 local function start_converting_at(self, idx)
   local seg = self._buf[idx]
-  local yomi = romaji.to_kana(seg.romaji)
+  local yomi = romaji.to_kana(seg.romaji, self._romaji_table)
   if yomi == "" then
     return false
   end
@@ -286,7 +288,7 @@ local function concat_all(self)
   local parts = {}
   for i, seg in ipairs(self._buf) do
     if seg.kind == "kana" then
-      parts[i] = romaji.to_kana(seg.romaji)
+      parts[i] = romaji.to_kana(seg.romaji, self._romaji_table)
     else
       parts[i] = seg.text -- latin / confirmed
     end
@@ -459,7 +461,7 @@ function Session:commit_katakana()
   if is_latin_tail(self) then
     return ""
   end
-  local reading = romaji.to_kana(concat_kana_romaji(self))
+  local reading = romaji.to_kana(concat_kana_romaji(self), self._romaji_table)
   if reading == "" then
     return ""
   end
