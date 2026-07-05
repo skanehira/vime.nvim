@@ -241,20 +241,19 @@ function M.on_input(ch)
     return
   end
   sync_anchor()
-  local s = st.session
   -- 挿入モードで確定が起きる場合は feedkeys 経路にする。session:input(ch) は確定と ch の
   -- 取り込みを同時に行い render も同期に走るが、finalize の fed テキスト挿入は非同期なので
   -- 位置がズレる。代わりに commit だけ先に済ませて確定テキストを feed し、ch を後段へ
   -- 再投入する(fed テキストの後で on_input へ戻り、sync_anchor が正しい位置へ再アンカー)。
-  if in_insert_mode() and input_commits(s, ch) then
-    local confirmed = s:commit()
+  if in_insert_mode() and input_commits(st.session, ch) then
+    local confirmed = st.session:commit()
     -- ch を先に typeahead 先頭へ積み(remap 許可で自マッピングへ戻す)、その前に確定テキストを
     -- 積むことで [確定テキスト][<C-G>u][ch][後続キー] の順序を保証する。
     api.nvim_feedkeys(ch, "i", true)
     finalize(confirmed)
     return
   end
-  local confirmed = s:input(ch)
+  local confirmed = st.session:input(ch)
   if confirmed ~= "" then
     finalize(confirmed)
   end
