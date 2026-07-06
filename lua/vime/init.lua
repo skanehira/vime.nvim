@@ -101,23 +101,20 @@ local function place_cursor()
   api.nvim_win_set_cursor(0, { st.row + 1, st.start_col + st.len })
 end
 
--- 注目文節の候補一覧 popup を(再)表示する。選択中を含む最大 POPUP_MAX 件の窓を出す。
+-- 候補一覧 popup を(再)表示する。選択中(sel、nil なら先頭基準・ハイライトなし)を含む
+-- 最大 POPUP_MAX 件の窓を出す。変換中の文節候補と composing 中の補完候補で共用する。
 local POPUP_MAX = 9
-local function open_popup_window()
-  if st.session:state() ~= "converting" then
-    return
-  end
-  local cands = st.session:candidates()
+local function show_candidate_window(cands, sel)
   local n = #cands
   if n == 0 then
     return
   end
-  local sel = st.session:current_candidate_index() or 1
+  local anchor = sel or 1
   local first = 1
   if n > POPUP_MAX then -- 選択中を含む窓へスクロール
-    first = math.min(math.max(sel - math.floor(POPUP_MAX / 2), 1), n - POPUP_MAX + 1)
+    first = math.min(math.max(anchor - math.floor(POPUP_MAX / 2), 1), n - POPUP_MAX + 1)
   end
-  local items, rel = {}, 1
+  local items, rel = {}, nil
   for i = first, math.min(first + POPUP_MAX - 1, n) do
     items[#items + 1] = cands[i]
     if i == sel then
@@ -125,6 +122,14 @@ local function open_popup_window()
     end
   end
   ui.show_popup(items, rel)
+end
+
+-- 注目文節の候補一覧 popup を(再)表示する(変換中のみ)。
+local function open_popup_window()
+  if st.session:state() ~= "converting" then
+    return
+  end
+  show_candidate_window(st.session:candidates(), st.session:current_candidate_index() or 1)
 end
 
 -- 現在の session 状態をバッファ＋ハイライトへ反映する。popup は開いていれば追従表示する。
