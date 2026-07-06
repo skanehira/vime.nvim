@@ -505,6 +505,88 @@ function Session:commit_with_replacement(word)
   return self:commit()
 end
 
+-- 全文を1文節へ伸長した文節配列を返す。resize のクランプ挙動のビルド差に備え、
+-- 1文節に収束するまで残差 delta で繰り返す(上限付き)。収束しなければそのまま返す。
+local function resize_to_single_segment(self, segs, yomi)
+  local total = uchars(yomi)
+  for _ = 1, 8 do
+    if #segs == 1 then
+      return segs
+    end
+    segs = self.anthy:resize(1, total - segs[1].len)
+  end
+  return segs
+end
+
+-- composing 中の補完(nvim-cmp)候補。_buf が単一 kana セグメントのみのときに限り、
+-- [1] 文節ごとベスト連結(single=false)、[2..] 全文を1文節へ伸長した候補群(single=true)を
+-- text で dedup して返す。読みに未完成ローマ字(英字)が残る間は出さない。
+-- anthy セッションは変換フローと共有するが、start_conversion が毎回 convert し直すため
+-- preview の resize 残留が後続の Space 変換を壊すことはない。
+function Session:completion_candidates()
+  if self._state ~= "composing" or self._ascii_mode then
+    return {}
+  end
+  if #self._buf ~= 1 or self._buf[1].kind ~= "kana" then
+    return {}
+  end
+  local yomi = romaji.to_kana(self._buf[1].romaji, self._romaji_table)
+  if yomi == "" or yomi:match("[A-Za-z]") then
+    return {}
+  end
+  if not self.anthy then
+    self.anthy = self._anthy.new_session()
+  end
+  local segs = self.anthy:convert(yomi)
+  local best = {}
+  for i, seg in ipairs(segs) do
+    best[i] = seg.best
+  end
+  local items = { { text = table.concat(best), yomi = yomi, single = false } }
+  local seen = { [items[1].text] = true }
+  segs = resize_to_single_segment(self, segs, yomi)
+  if #segs == 1 then -- 収束しなければ部分文字列の候補になるので追加しない
+    for _, cand in ipairs(segs[1].candidates) do
+      if not seen[cand] then
+        seen[cand] = true
+        items[#items + 1] = { text = cand, yomi = yomi, single = true }
+      end
+    end
+  end
+  return items
+end
+
+-- 補完候補 item({text, yomi, single})を anthy に学習 commit し、composing を空へ戻して text を返す。
+-- yomi を再 convert してから、single なら全文1文節へ伸長し text 一致の候補 index を commit(学習)、
+-- そうでなければ全文節を既定候補(choices=1)で commit する。text がどの候補にも一致しなければ
+-- 学習をスキップする(例外は投げない)。メニュー表示と確定の間に状態が変わっていてもよいよう、
+-- 内部状態を持ち回らず item の yomi から再構築する(ステートレス)。
+function Session:commit_completion(item)
+  if not self.anthy then
+    self.anthy = self._anthy.new_session()
+  end
+  local segs = self.anthy:convert(item.yomi)
+  if item.single then
+    segs = resize_to_single_segment(self, segs, item.yomi)
+    if #segs == 1 then
+      for i, cand in ipairs(segs[1].candidates) do
+        if cand == item.text then
+          self.anthy:commit({ i })
+          break
+        end
+      end
+    end
+  else
+    local choices = {}
+    for i = 1, #segs do
+      choices[i] = 1
+    end
+    self.anthy:commit(choices)
+  end
+  reset_composing(self)
+  return item.text
+end
+
 -- 取消。converting なら注目 kana の変換を取り消し composing へ戻す(confirmed/latin は保持)。
 -- composing なら全未確定(buf)を破棄。
 function Session:cancel()
