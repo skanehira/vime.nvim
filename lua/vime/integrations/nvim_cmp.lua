@@ -1,5 +1,4 @@
--- nvim-cmp 統合: vime モード ON 中は補完を抑止する。source モード("source")では、
--- 抑止しつつ vime の変換候補を cmp source として提供する。
+-- nvim-cmp 統合: vime モード ON 中は補完を抑止する。
 -- 設計判断:
 --   * cmp.setup({ enabled = function() ... end }) を vime 側で上書きすると、cmp 内部の
 --     デフォルト判定(prompt buftype/マクロ記録中/マクロ実行中)が消えるので明示的に
@@ -7,44 +6,19 @@
 --     独自判定と併用したいユーザーは vime.is_enabled() を自分の enabled の中で呼ぶ。
 --   * ON 切替時の既存 popup は enabled の上書きだけでは閉じないため、VimeModeChanged
 --     autocmd で `cmp.close()` を呼んで確実に閉じる。
---   * source モードでは vime の候補提供中(composing)に cmp を有効へ戻す。CursorMovedI で
---     enabled()==false だと開いたメニューが閉じられるため。VimePreeditChanged autocmd で
---     未確定変化に追従して cmp.complete(vime source のみ)/cmp.close() を切り替える。
 --   * nvim-cmp 未ロード/未インストールでも壊れないように pcall で optional に扱う。
 --   * cmp 自体が InsertEnter で lazy load される構成(lazy.nvim の event = "InsertEnter")
 --     に確実に追従するため、cmp の設定上書きは vime.setup 直後ではなく InsertEnter once
 --     のタイミングで行う。vim.schedule では cmp ロード前に上書きが失敗するケースがある。
 local M = {}
 
--- 純粋関数: enabled が返すべき bool を導く。
--- source_completing(vime source が候補提供中)なら true、vime ON なら false、
--- それ以外は cmp デフォルトに従う。
-function M.compute_enabled(vime_active, default_enabled, source_completing)
-  if source_completing then
-    return true
-  end
+-- 純粋関数: vime の active 状態と cmp デフォルト判定から、enabled が返すべき bool を導く。
+-- vime ON なら無条件で false、それ以外は cmp デフォルトに従う。
+function M.compute_enabled(vime_active, default_enabled)
   if vime_active then
     return false
   end
   return default_enabled()
-end
-
--- 補完メニューでの <CR>(Google 日本語入力風)を処理する。vime の on_commit から最初に呼ばれる。
--- 候補が明示選択されていればそれを確定し true を返す(vime 自身の commit はしない)。
--- 未選択でメニューが開いているだけなら、メニューを閉じて false を返し vime のかな確定に委ねる
--- (メニューを開いたまま vime が feedkeys 確定すると未確定が二重に入るため、先に閉じる)。
--- メニュー非表示・cmp 未ロードなら false を返し、vime 自身の commit に委ねる。
-function M.confirm_selected()
-  local ok, cmp = pcall(require, "cmp")
-  if not ok or not cmp.visible() then
-    return false
-  end
-  if cmp.get_selected_entry() ~= nil then
-    -- select=false: 明示選択された候補だけを確定する(未選択時に先頭を勝手に確定しない)
-    return cmp.confirm({ select = false }) and true or false
-  end
-  cmp.close()
-  return false
 end
 
 -- nvim-cmp のデフォルト enabled 判定を再現する(lua/cmp/config/default.lua 相当)。
@@ -64,9 +38,8 @@ end
 
 -- vime.setup から呼ばれる。`group` は init の "vime" augroup を共有し、setup 再呼出時に
 -- 自動 clear されるようにする。get_vime_active は require("vime").is_enabled を渡す想定。
--- source_api(非 nil)で source モード: {completion_active, completion_context, commit_completion}。
 -- 最初の InsertEnter で cmp をロードしつつ enabled を上書きする(lazy.nvim 構成に耐える)。
-function M.attach(get_vime_active, group, source_api)
+function M.attach(get_vime_active, group)
   vim.api.nvim_create_autocmd("InsertEnter", {
     group = group,
     once = true,
@@ -76,23 +49,9 @@ function M.attach(get_vime_active, group, source_api)
       if not ok then
         return
       end
-      local source_completing = function()
-        return source_api ~= nil and source_api.completion_active()
-      end
-      if source_api then
-        local nvim_cmp_source = require("vime.integrations.nvim_cmp_source")
-        cmp.register_source(
-          "vime",
-          nvim_cmp_source.new({
-            active = source_api.completion_active,
-            context = source_api.completion_context,
-            commit = source_api.commit_completion,
-          })
-        )
-      end
       cmp.setup({
         enabled = function()
-          return M.compute_enabled(get_vime_active(), default_enabled, source_completing())
+          return M.compute_enabled(get_vime_active(), default_enabled)
         end,
       })
       vim.api.nvim_create_autocmd("User", {
@@ -104,20 +63,6 @@ function M.attach(get_vime_active, group, source_api)
           end
         end,
       })
-      if source_api then
-        -- 未確定の変化に追従して vime source のみの補完を出す/閉じる。
-        vim.api.nvim_create_autocmd("User", {
-          group = group,
-          pattern = "VimePreeditChanged",
-          callback = function(args)
-            if args.data and args.data.available then
-              cmp.complete({ config = { sources = { { name = "vime" } } } })
-            else
-              cmp.close()
-            end
-          end,
-        })
-      end
     end,
   })
 end
