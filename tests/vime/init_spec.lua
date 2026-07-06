@@ -992,7 +992,6 @@ describe("vime completion integration", function()
     assert.are.equal(item.text .. "あ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
     vim.cmd("stopinsert")
   end)
-
 end)
 
 describe("vime built-in completion", function()

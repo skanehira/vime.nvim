@@ -179,8 +179,7 @@ local function refresh_completion()
   if not st.cfg.completion.enabled then
     return
   end
-  local items = (st.enabled and st.session:state() == "composing") and st.session:completion_candidates()
-    or {}
+  local items = (st.enabled and st.session:state() == "composing") and st.session:completion_candidates() or {}
   if #items == 0 then
     reset_completion()
     return
