@@ -136,7 +136,7 @@ function M.private_dic_path()
   return home .. "/.anthy/private_words_default"
 end
 
--- 現在の context から全文節の {best, candidates} を読み出す。
+-- 現在の context から全文節の {best, candidates, len} を読み出す。len は文節の読み文字数。
 local function read_segments(l, ctx)
   local st = ffi.new("struct anthy_conv_stat")
   l.anthy_get_stat(ctx, st)
@@ -151,7 +151,7 @@ local function read_segments(l, ctx)
       l.anthy_get_segment(ctx, i, j, buf, need + 1)
       cands[#cands + 1] = ffi.string(buf)
     end
-    segs[#segs + 1] = { best = cands[1], candidates = cands }
+    segs[#segs + 1] = { best = cands[1], candidates = cands, len = ss.seg_len }
   end
   return segs
 end

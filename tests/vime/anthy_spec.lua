@@ -71,6 +71,30 @@ describe("vime.anthy session", function()
     assert.are.equal(yomi, table.concat(parts))
     s:close()
   end)
+
+  it("includes the reading length of each segment in read results", function()
+    local s = anthy.new_session()
+    local segs = s:convert("きょうはいい") -- 6 文字
+    local total = 0
+    for _, seg in ipairs(segs) do
+      assert.is_true(seg.len >= 1)
+      total = total + seg.len
+    end
+    assert.are.equal(6, total) -- 各文節の len の合計は読み全体の文字数と一致
+    s:close()
+  end)
+
+  it("collapses to a single segment when the first segment is resized to full length", function()
+    local s = anthy.new_session()
+    local segs = s:convert("きょうはいい") -- 6 文字
+    if #segs > 1 then
+      segs = s:resize(1, 6 - segs[1].len) -- 第1文節を読み全体の長さまで伸長
+    end
+    assert.are.equal(1, #segs) -- 1文節に収束する
+    assert.are.equal(6, segs[1].len)
+    assert.is_true(#segs[1].candidates > 0)
+    s:close()
+  end)
 end)
 
 -- ユーザ辞書(私的辞書)に登録された語が候補に出るかをカウントする。
