@@ -61,9 +61,7 @@ lua/vime/
 ├── import.lua    辞書取り込み CLI（nvim -l。skk.load + anthy.register_word を別プロセスで実行）
 ├── keymap.lua    挿入モードのキー → init のハンドラへディスパッチ
 └── integrations/ 外部プラグイン連携（opt-in。本体は依存しない）
-    ├── nvim_cmp.lua         vime モード ON 中は nvim-cmp の補完を抑止する（pcall で optional）。
-    │                        "source" では抑止しつつ vime 候補を cmp source として提供する結線も担う
-    └── nvim_cmp_source.lua  vime 候補を nvim-cmp へ流す source 実装（cmp 非依存・provider を DI）
+    └── nvim_cmp.lua  vime モード ON 中は nvim-cmp の補完を抑止する（pcall で optional）
 ```
 
 ### 3.1 依存方向
@@ -78,8 +76,7 @@ keymap ──► (init の handlers) ──► session ──► anthy (DIP イ�
 import(CLI) ──► skk ──► (register fn 注入 = anthy.register_word)   # エディタとは別プロセス
 config ──► (各モジュールが参照)
 init ──► 全モジュールを結線するコントローラ
-init ──► integrations/* (opt-in。is_enabled/completion_* を依存注入で渡し、外部プラグイン側を片方向に触る)
-integrations/nvim_cmp ──► nvim_cmp_source (provider={active,context,commit} を DI。cmp に register_source)
+init ──► integrations/* (opt-in。is_enabled を依存注入で渡し、外部プラグイン側を片方向に触る)
 ```
 
 - `session` は `anthy` を **コンストラクタ注入**（`session.new(anthy_module)`）で受け取り、インターフェース越し（`convert`/`resize`/`commit`/`close`）に使う（DIP）。テストでも実 anthy を注入する。
@@ -88,12 +85,12 @@ integrations/nvim_cmp ──► nvim_cmp_source (provider={active,context,commit
 - `skk` は SKK 辞書（JISYO JSON）の解析と取り込みを担い、`anthy` へは直接依存せず `register(yomi, word)` コールバック注入で動く（DIP・純粋部分はテスト容易）。辞書取り込みはエディタ内ではなく CLI（`import.lua`）から `skk.load` に `anthy.register_word` を注入して実行する（別プロセス＝エディタを止めない）。
 - `init` がコントローラ。バッファ・カーソル位置・未確定領域（`start_col`/`len`）・popup 状態を保持し、`session` の状態変化を `ui` 描画へ流す唯一の場所。`init` は辞書取り込みに関与しない。
 - `integrations/*` は **opt-in** な外部プラグイン連携層。`pcall(require, "<plugin>")` で optional 依存にし、未インストールでも本体は壊れない。本体（`session`/`anthy`/`ui` 等）は integrations を一切 require しない（**依存方向は init → integrations → 外部プラグインの片方向**）。`is_enabled` のような本体の公開 API は関数参照を渡す形で注入し、循環 require を避ける。
-- **nvim-cmp source 統合**（`integrations.nvim_cmp = "source"`）は composing 中に vime の変換候補を cmp の補完メニューへ流す。設計判断:
-  - `nvim_cmp_source.lua` は cmp を require せず、`provider = {active, context, commit}` を DI で受ける純ロジック（`init` の `completion_active`/`completion_context`/`commit_completion` を注入）。cmp 起動なしで単体テストできる。
-  - source は `get_position_encoding_kind() = "utf-8"` を宣言し、`textEdit` の character に vime の byte オフセット（`start_col`/`len`）をそのまま渡す（cmp 既定の utf-16 変換を挟ませない）。`filterText = 読み` で completion 入力（offset..cursor = 読み全体）と前方一致させ、候補が消えないようにする。読みが伸びるたび全入れ替えするため `isIncomplete = true`。
-  - トリガーは `User VimePreeditChanged`（未確定変化ごとに `init` が発火）。integration 側が `data.available` で `cmp.complete({config={sources={{name="vime"}}}})` / `cmp.close()` を切り替える。TextChangedI は API 書き込みで発火が不確実なため使わない。onetime config でメニュー表示中は vime source のみに絞り、他 source（LSP 等）の混入を防ぐ。
-  - `compute_enabled` は composing で候補提供中（`source_completing`）なら cmp を **有効へ戻す**。cmp は `CursorMovedI` で `enabled()==false` だと開いたメニューを閉じるため、抑止のままだと source メニューも閉じてしまう。
-  - `execute`（確定後・cmp が textEdit 済み）で `provider.commit` を呼び Anthy に学習させる。確定は cmp 経由のためバッファ操作は cmp が済ませており、`init` 側は IME 状態（extmark・未確定長・popup）の掃除だけを行う。cmp confirm の `.` レジスタ操作は vime の API 挿入 preedit と整合しないので dot repeat は非対応（`<Space>`/`<CR>` フローを使う）。
+- **自前自動補完**（`completion.enabled`、既定 ON）は composing 中に `session:completion_candidates()` の候補を自前 popup（`ui.show_popup`、変換フローと共用）で自動表示する。設計判断:
+  - **補完は外部補完エンジン（nvim-cmp 等）に委譲しない**。vime は未確定を実テキストとして byte 単位（`start_col`/`len`）で管理しており、外部エンジンは候補の選択・確定・クローズでバッファを非同期に書き替える。「バッファの書き手が 2 人」になると二重挿入・巻き戻し・断片混入が原理的に避けられない（nvim-cmp source 統合を実装・検証して確認済み）。自前 popup なら全操作が同期・単独書き手で、plenary のヘッドレステストで end-to-end 検証できる。
+  - 候補は「文節ごとのベスト連結」を先頭に「全文 1 文節候補群」を dedup して並べる（`session:completion_candidates()`）。入力のたびに再計算して popup を追従し、候補が無い状態（未確定なし・英字ラン・変換中など）で自動クローズする。
+  - `<C-n>/<C-p>` は popup 表示中のみ buffer-local に張る（`keymap.attach_completion`、converting 限定キーと同じ動的 attach パターン。composing/converting は排他なので同じ lhs でも衝突しない）。選択は **インライン置換**: 未確定領域の表示を候補テキストへ `set_region_text` で置き換える（`session` は読みを保持し続けるので、`<Space>` の通常変換や `<BS>` の選択解除は読みへそのまま戻れる）。
+  - 確定（`<CR>`・選択したまま次の文字・InsertLeave・toggle OFF）は `session:commit_completion(item)` で anthy へ学習 commit する。未確定領域は選択時に置換済みなので、領域の追跡（`start_col += len`）だけ進める。
+  - 補完確定は API 置換のため dot repeat（`.`）には載らない（`<Space>`/`<CR>` の変換フローは従来どおり feedkeys 経路で dot repeat 対応）。
 
 ### 3.2 各モジュールの責務と主要 API
 
