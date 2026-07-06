@@ -103,7 +103,7 @@ setup() に渡せる設定と既定値: >lua
 	    highlight = nil,              -- nil なら緑デフォルト
 	  },
 	  integrations = {
-	    nvim_cmp = false,             -- true で vime ON 中は nvim-cmp の補完を抑止
+	    nvim_cmp = false,             -- false/true(抑止)/"source"(候補を cmp に自動表示)
 	  },
 	})
 <
@@ -149,7 +149,9 @@ integrations		外部プラグイン連携の opt-in 設定。本体は連携先�
 			依存しない（未インストール/未ロードでも壊れない）。
 
   integrations.nvim_cmp ~
-			true で vime モード ON 中（direct 以外）は nvim-cmp の
+			三値（`false` / `true` / `"source"`）。既定 `false`。
+
+			`true`: vime モード ON 中（direct 以外）は nvim-cmp の
 			補完を抑止する。内部実装:
 			- cmp の global `enabled` を上書きし、vime ON 中は false
 			  を返す。OFF 中は nvim-cmp デフォルト判定（prompt
@@ -163,6 +165,23 @@ integrations		外部プラグイン連携の opt-in 設定。本体は連携先�
 			いる場合は、本オプションを true にせず自分の `fn` の中で
 			|vime.is_enabled()| を呼ぶこと（本オプションを true にすると
 			ユーザーの enabled が上書きされる）。
+
+			`"source"`: 上記の抑止に加え、読み入力中（<Space> を押す
+			前の composing）に Anthy の変換候補を nvim-cmp の補完
+			メニューへ自動表示する。選択して確定すると Anthy に学習
+			される（<Space> 変換と同じ）。仕様:
+			- 候補は「文節ごとのベスト連結」（例: きょうはいいてんき →
+			  今日はいい天気）を先頭に、続けて「全文を 1 文節とした
+			  候補群」を並べる（テキスト重複は除去）。
+			- 未確定が変わるたび |User| |VimePreeditChanged| を発火し、
+			  vime source のみの補完を出し直す。composing 中は cmp を
+			  有効へ戻す（変換中・direct では抑止のまま）。
+			- 単一のかな読みのときだけ表示する。ローマ字が途中（"ky"
+			  等）の間・英字ラン・ASCII モード・かな/英字の混在時は
+			  出さない。それらは <Space> 変換フローに委ねる。
+			- cmp のメニューから確定した場合は dot repeat（`.`）に
+			  載らない。繰り返したい確定は <Space>/<CR> フローを使う。
+			- nvim-cmp 未インストールでも壊れない（optional 依存）。
 
 SKK 辞書の取り込みは設定ではなく CLI で行う（|vime-dictionary|）。
 
@@ -411,6 +430,13 @@ args.data に |vime.mode()| と同じテーブルが入る。 >lua
 
 	require("vime").setup({ mode_notify = { enabled = false } })
 <
+							*VimePreeditChanged*
+未確定文字列が変わると User イベント VimePreeditChanged が発火する。
+args.data = { state, preedit, available }。`state` は "composing"/
+"converting"/"direct"、`preedit` は現在の未確定文字列、`available` は
+補完候補を出しうる状態か（|vime-config-integrations| の `nvim_cmp="source"`
+がこれを購読して cmp の補完を出し直す）。自前の補完 UI に流すこともできる。
+
 ==============================================================================
 10. ライセンス						*vime-license*
 
