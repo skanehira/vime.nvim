@@ -60,6 +60,17 @@ describe("vime.config.merge", function()
     assert.is_true(c.integrations.nvim_cmp)
   end)
 
+  it("defaults the built-in completion to enabled", function()
+    -- 読み入力中の自動補完 (自前 popup) は既定で ON。
+    local c = config.merge(nil)
+    assert.is_true(c.completion.enabled)
+  end)
+
+  it("allows disabling the built-in completion", function()
+    local c = config.merge({ completion = { enabled = false } })
+    assert.is_false(c.completion.enabled)
+  end)
+
   it("defaults romaji.table to nil (use built-in wapuro table)", function()
     local c = config.merge(nil)
     assert.is_nil(c.romaji.table)

@@ -501,6 +501,9 @@ end)
 describe("vime converting-only keymaps follow state transitions", function()
   -- converting 状態でのみ vime が文節操作系キー(C-f/C-b/C-n/C-p/C-o/C-i)を奪い、
   -- composing / ASCII 直入力 / direct ではユーザの insert マッピングを生かす。
+  -- 自前補完は composing 中に C-n/C-p を握るため、この describe では無効化して
+  -- converting 限定キーの遷移だけを検証する(補完側の attach/detach は built-in
+  -- completion の describe で検証する)。
   local CONVERTING_KEYS = { "<C-F>", "<C-B>", "<C-N>", "<C-P>", "<C-O>", "<C-I>" }
 
   local function any_mapped(buf)
@@ -525,7 +528,11 @@ describe("vime converting-only keymaps follow state transitions", function()
     if vime.is_enabled() then
       vime.toggle()
     end
-    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+    vime.setup({
+      anthy = { lib = LIB },
+      mode_notify = { enabled = false },
+      completion = { enabled = false },
+    })
   end)
 
   after_each(function()
@@ -860,5 +867,294 @@ describe("vime integrations wiring", function()
     assert.are.equal(1, #nvim_cmp_insert_enter_autocmds())
     -- 後続テストへ漏れないよう既定構成で setup し直して augroup を clear する。
     vime.setup({ anthy = { lib = LIB } })
+  end)
+end)
+
+describe("vime completion integration", function()
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  -- User VimePreeditChanged を購読して data を順に集める。返り値の autocmd id は呼び出し側で del する。
+  local function collect_preedit_events()
+    local events = {}
+    local id = api.nvim_create_autocmd("User", {
+      pattern = "VimePreeditChanged",
+      callback = function(args)
+        events[#events + 1] = args.data
+      end,
+    })
+    return events, id
+  end
+
+  it("fires User VimePreeditChanged as the preedit changes", function()
+    fresh_buf()
+    vime.toggle()
+    local events, id = collect_preedit_events()
+    vime.on_input("k")
+    vime.on_input("a")
+    api.nvim_del_autocmd(id)
+    assert.are.equal(2, #events) -- キー入力ごとに1回
+    assert.are.equal("か", events[#events].preedit)
+    assert.is_true(events[#events].available)
+  end)
+
+  it("fires VimePreeditChanged with an empty preedit after commit", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("ka"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local events, id = collect_preedit_events()
+    vime.on_commit() -- 確定 → 未確定が空に
+    api.nvim_del_autocmd(id)
+    assert.is_true(#events >= 1)
+    assert.are.equal("", events[#events].preedit)
+    assert.is_false(events[#events].available)
+  end)
+
+  it("does not refire VimePreeditChanged when the preedit is unchanged", function()
+    fresh_buf()
+    vime.toggle()
+    local events, id = collect_preedit_events()
+    vime.on_convert() -- 未確定なし → スペース挿入。session の preedit は "" のまま
+    api.nvim_del_autocmd(id)
+    assert.are.equal(0, #events)
+  end)
+
+  it("exposes completion_active only while composing with a preedit", function()
+    fresh_buf()
+    assert.is_false(vime.completion_active()) -- OFF
+    vime.toggle()
+    assert.is_false(vime.completion_active()) -- ON だが未確定なし
+    for ch in ("ka"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.is_true(vime.completion_active()) -- composing + 未確定あり
+    vime.on_convert() -- 変換開始 → converting
+    assert.is_false(vime.completion_active())
+  end)
+
+  it("completion_context returns the preedit byte region and candidate items", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyouhaii"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local ctx = vime.completion_context()
+    assert.is_not_nil(ctx)
+    assert.are.equal(0, ctx.row)
+    assert.are.equal(0, ctx.start_col)
+    assert.are.equal(#"きょうはいい", ctx.len) -- byte 長
+    assert.are.equal("きょうはいい", ctx.yomi)
+    assert.is_true(#ctx.items >= 1)
+  end)
+
+  it("commit_completion clears IME state after cmp replaced the region", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyouhaii"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local ctx = vime.completion_context()
+    local item = ctx.items[1]
+    -- cmp の確定は挿入モードで起こり、カーソルは行末(確定テキストの直後)へ置かれる。
+    -- ノーマルモードだと行末のマルチバイト文字手前へクランプされ再現にならないため挿入モードにする。
+    vim.cmd("startinsert")
+    -- cmp が textEdit で未確定領域を候補テキストへ置換したのを模擬する
+    api.nvim_buf_set_text(buf, ctx.row, ctx.start_col, ctx.row, ctx.start_col + ctx.len, { item.text })
+    api.nvim_win_set_cursor(0, { ctx.row + 1, ctx.start_col + #item.text })
+
+    vime.commit_completion(item)
+
+    assert.are.equal("composing", vime.mode().state) -- 変換中でなく composing に戻る
+    local marks = api.nvim_buf_get_extmarks(buf, require("vime.ui").namespace(), 0, -1, {})
+    assert.are.equal(0, #marks) -- 未確定の extmark が掃除されている
+
+    vime.on_input("a") -- 続けて入力すると確定テキストの後ろに入る
+    assert.are.equal(item.text .. "あ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vim.cmd("stopinsert")
+  end)
+end)
+
+describe("vime built-in completion", function()
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  -- 表示中の floating window を数える(mode_notify は無効化してあるので候補 popup のみ)。
+  local function floating_wins()
+    local n = 0
+    for _, w in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_get_config(w).relative ~= "" then
+        n = n + 1
+      end
+    end
+    return n
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("shows a candidate popup automatically while composing", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.are.equal(1, floating_wins()) -- 読み入力中は候補 popup が自動で出る
+    vime.on_commit() -- かな確定
+    assert.are.equal(0, floating_wins()) -- 確定で閉じる
+  end)
+
+  it("does not show the popup when completion is disabled", function()
+    vime.setup({
+      anthy = { lib = LIB },
+      mode_notify = { enabled = false },
+      completion = { enabled = false },
+    })
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.are.equal(0, floating_wins())
+  end)
+
+  it("attaches candidate keys only while the popup is open", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    local function has_cn_map()
+      for _, m in ipairs(api.nvim_buf_get_keymap(buf, "i")) do
+        if m.lhs == "<C-N>" then
+          return true
+        end
+      end
+      return false
+    end
+    assert.is_false(has_cn_map()) -- 未入力では握らない(ユーザの C-n が生きる)
+    for ch in ("sora"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.is_true(has_cn_map()) -- popup 表示中は候補選択キーを握る
+    vime.on_commit()
+    assert.is_false(has_cn_map()) -- 確定で解放
+  end)
+
+  it("selects candidates inline with next/prev and wraps back to the reading", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("sekai"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1]) -- インライン置換
+    vime.on_next_candidate()
+    assert.are.equal(items[2].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_prev_candidate()
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_prev_candidate()
+    assert.are.equal("せかい", api.nvim_buf_get_lines(buf, 0, 1, false)[1]) -- 読みへ戻る(wrap)
+  end)
+
+  it("commits the selected candidate with the commit key", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kikai"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    vime.on_commit()
+
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal("composing", vime.mode().state)
+    assert.is_false(vime.completion_active()) -- 未確定は空
+    assert.are.equal(0, floating_wins())
+  end)
+
+  it("typing while a candidate is selected commits it first", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("hokan"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    vime.on_input("g") -- 選択したまま次の文字
+
+    -- 選択候補が確定され、g は新しい読みの 1 文字目になる
+    assert.are.equal(items[1].text .. "g", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("starts conversion from the reading even while a candidate is selected", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyouto"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_next_candidate() -- 候補を選択した状態で
+
+    vime.on_convert() -- <Space> は読みの通常変換へ
+
+    assert.are.equal("converting", vime.mode().state)
+    -- 変換結果は読み由来(参照用 session の変換と一致)
+    local ref = require("vime.session").new(require("vime.anthy"))
+    for ch in ("kyouto"):gmatch(".") do
+      ref:input(ch)
+    end
+    ref:start_conversion()
+    assert.are.equal(table.concat(ref:segments().list), api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("deselects back to the reading with backspace", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("asita"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_backspace() -- 1 回目は選択解除のみ
+    assert.are.equal("あした", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_backspace() -- 2 回目から通常のかな削除
+    assert.are.equal("あし", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
   end)
 end)

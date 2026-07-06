@@ -40,6 +40,10 @@ M.defaults = {
     -- nvim_set_hl 互換テーブル({ bg = "#...", fg = "#...", bold = true, ... })で明示上書き可。
     highlight = nil,
   },
+  completion = {
+    -- 読み入力中(変換前)に変換候補を popup で自動表示する自前補完。false で無効化。
+    enabled = true,
+  },
   integrations = {
     -- nvim-cmp 連携。true で vime モード ON 中は cmp の補完を抑止する。
     nvim_cmp = false,

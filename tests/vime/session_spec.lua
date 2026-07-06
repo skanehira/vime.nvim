@@ -464,3 +464,131 @@ describe("vime.session CONVERTING (real anthy)", function()
     assert.are.equal(target, s2:segments().list[2]) -- 既定が学習結果に変化
   end)
 end)
+
+describe("vime.session completion candidates", function()
+  it("returns the per-segment best concatenation as the first candidate", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+
+    local ref = new()
+    type_in(ref, "kyouhaii")
+    ref:start_conversion()
+    local expected = table.concat(ref:segments().list)
+
+    assert.are.equal(expected, items[1].text)
+    assert.is_false(items[1].single)
+    for _, item in ipairs(items) do
+      assert.are.equal("きょうはいい", item.yomi)
+    end
+  end)
+
+  it("appends whole-string single-segment candidates after the best concatenation", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+    assert.is_true(#items >= 2)
+    for i = 2, #items do
+      assert.is_true(items[i].single)
+      assert.is_true(#items[i].text > 0)
+    end
+  end)
+
+  it("dedups candidates by text", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+    local seen = {}
+    for _, item in ipairs(items) do
+      assert.is_nil(seen[item.text])
+      seen[item.text] = true
+    end
+  end)
+
+  it("returns empty during a latin run", function()
+    local s = new()
+    type_in(s, "Vim")
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty in ascii mode", function()
+    local s = new()
+    type_in(s, ";abc")
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty while the reading has unfinished romaji", function()
+    local s = new()
+    type_in(s, "ky")
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty while converting", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:start_conversion()
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty when the buffer has mixed segments", function()
+    local s = new()
+    type_in(s, "aka;iPhone;wo") -- kana / latin(closed) / kana の3セグメント混在
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("does not disturb the subsequent Space conversion flow", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:completion_candidates() -- 呼んでも converting フローに影響しない
+
+    local ref = new()
+    type_in(ref, "kyouhaii")
+    ref:start_conversion()
+
+    s:start_conversion()
+    assert.are.same(ref:segments().list, s:segments().list)
+  end)
+end)
+
+describe("vime.session commit_completion", function()
+  it("commit_completion resets to an empty composing state and returns the text", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+    local result = s:commit_completion(items[1])
+    assert.are.equal(items[1].text, result)
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
+
+  it("commit_completion skips learning safely when the text is not a candidate", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local fake = { text = "存在しない捏造語", yomi = "きょうはいい", single = true }
+    local result
+    assert.has_no.errors(function()
+      result = s:commit_completion(fake)
+    end)
+    assert.are.equal("存在しない捏造語", result)
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
+
+  -- 学習は後続の既定を変えうるため describe 末尾に置く。
+  -- 単一文節に収まる読み(きかい=機会/機械/奇怪…)で、非既定の single 候補を確定すると
+  -- 学習によりそれが次回のベスト(items[1])へ昇格することを相対変化で検証する(辞書非依存)。
+  it("learns the committed single-segment candidate so it becomes the next best", function()
+    local s = new()
+    type_in(s, "kikai")
+    local items = s:completion_candidates()
+    local target = items[2] -- 先頭ベストでない最上位の single 候補(実辞書語)
+    assert.is_true(target.single)
+
+    s:commit_completion(target)
+
+    local s2 = new()
+    type_in(s2, "kikai")
+    local best = s2:completion_candidates()[1]
+    assert.are.equal(target.text, best.text) -- 学習した候補がベストに変化
+  end)
+end)

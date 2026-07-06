@@ -26,8 +26,16 @@ local CONVERTING_ONLY = {
   "register_word",
 }
 
+-- composing 中の補完 popup 表示中のみバッファに張るキー(config.keymaps 上の名前)。
+-- converting 限定キーと同じ lhs(C-n/C-p)だが、状態が排他なので同時には張られない。
+local COMPLETION_ONLY = {
+  "next_candidate",
+  "prev_candidate",
+}
+
 local registered = {} -- buf -> {lhs,...} (常時マッピング)
 local registered_converting = {} -- buf -> {lhs,...} (converting 限定マッピング)
+local registered_completion = {} -- buf -> {lhs,...} (補完 popup 表示中限定マッピング)
 
 -- buf にバッファローカルの挿入モードマッピングを張る。
 function M.attach(buf, config, handlers)
@@ -64,9 +72,10 @@ function M.attach(buf, config, handlers)
   registered[buf] = lhs_list
 end
 
--- buf のマッピングを外す。converting 限定マッピングも合わせて掃除する。
+-- buf のマッピングを外す。converting/補完限定マッピングも合わせて掃除する。
 function M.detach(buf)
   M.detach_converting(buf)
+  M.detach_completion(buf)
   local lhs_list = registered[buf]
   if not lhs_list then
     return
@@ -103,6 +112,34 @@ function M.detach_converting(buf)
     pcall(vim.keymap.del, "i", lhs, { buffer = buf })
   end
   registered_converting[buf] = nil
+end
+
+-- 補完 popup 表示中に必要なキー(候補選択)だけを追加でマップする。
+-- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
+function M.attach_completion(buf, config, handlers)
+  if registered_completion[buf] then
+    return
+  end
+  local lhs_list = {}
+  local km = config.keymaps
+  for _, name in ipairs(COMPLETION_ONLY) do
+    local lhs = km[name]
+    vim.keymap.set("i", lhs, handlers[name], { buffer = buf, nowait = true, silent = true })
+    lhs_list[#lhs_list + 1] = lhs
+  end
+  registered_completion[buf] = lhs_list
+end
+
+-- 補完限定のマッピングだけを外す。未 attach なら何もしない(冪等)。
+function M.detach_completion(buf)
+  local lhs_list = registered_completion[buf]
+  if not lhs_list then
+    return
+  end
+  for _, lhs in ipairs(lhs_list) do
+    pcall(vim.keymap.del, "i", lhs, { buffer = buf })
+  end
+  registered_completion[buf] = nil
 end
 
 return M
