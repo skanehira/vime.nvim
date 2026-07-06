@@ -102,8 +102,11 @@ setup() に渡せる設定と既定値: >lua
 	    },
 	    highlight = nil,              -- nil なら緑デフォルト
 	  },
+	  completion = {
+	    enabled = true,               -- 読み入力中の自動補完(候補 popup)
+	  },
 	  integrations = {
-	    nvim_cmp = false,             -- true で vime ON 中は nvim-cmp の補完を抑止
+	    nvim_cmp = false,             -- true で vime ON 中は nvim-cmp を抑止
 	  },
 	})
 <
@@ -143,6 +146,34 @@ mode_notify		モード切替時にカーソル下へ短時間ラベルを表示�
 			すと |hl-VimeModeNotify| を上書きできる(nil は緑デフォルト)。
 			ホスト |api-floatwin| の中で入力していても、mode notify は
 			そのホストより前面の zindex で出るので隠れない。
+
+						*vime-config-completion*
+completion		読み入力中（<Space> を押す前の composing）の自動補完。
+			既定で有効。`enabled = false` で無効化できる。
+
+			読みを打つたびに Anthy の変換候補をカーソル下の popup へ
+			自動表示する（Google 日本語入力の予測表示風）。候補は
+			「文節ごとのベスト連結」（例: きょうはいいてんき →
+			今日はいい天気）を先頭に、続けて「全文を 1 文節とした
+			候補群」を並べる（テキスト重複は除去）。
+
+			操作（popup 表示中のみ、キーは |vime-config-keymaps| の
+			next_candidate / prev_candidate）:
+			- <C-n>/<C-p>: 候補を選択。未確定の表示が候補へインライン
+			  置換される。読み（未選択）も循環に含まれる
+			- <CR>: 選択中の候補を確定（Anthy に学習される）。未選択
+			  なら読みをそのまま確定
+			- 選択したまま次の文字を打つと、選択候補が確定されてから
+			  新しい読みが始まる
+			- <Space>: 選択中でも読みの通常変換（|vime-usage|）へ入る
+			- <BS>: 選択中は 1 回目が選択解除（読みへ戻る）、以降は
+			  通常のかな削除
+
+			補完候補は単一のかな読みのときだけ表示する。ローマ字が
+			途中（"ky" 等）の間・英字ラン・ASCII モード・かな/英字の
+			混在時は出さない。それらは <Space> 変換フローに委ねる。
+			popup 表示中だけ next/prev_candidate キーをバッファに
+			張るので、無効化すればユーザの <C-n>/<C-p> が生きる。
 
 						*vime-config-integrations*
 integrations		外部プラグイン連携の opt-in 設定。本体は連携先プラグインに
@@ -411,6 +442,12 @@ args.data に |vime.mode()| と同じテーブルが入る。 >lua
 
 	require("vime").setup({ mode_notify = { enabled = false } })
 <
+							*VimePreeditChanged*
+未確定文字列が変わると User イベント VimePreeditChanged が発火する。
+args.data = { state, preedit, available }。`state` は "composing"/
+"converting"/"direct"、`preedit` は現在の未確定文字列、`available` は
+補完候補を出しうる状態か。独自の補完 UI やステータス表示に使える。
+
 ==============================================================================
 10. ライセンス						*vime-license*
 

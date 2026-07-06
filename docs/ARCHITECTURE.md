@@ -72,6 +72,7 @@ keymap ──► (init の handlers) ──► session ──► anthy (DIP イ�
    ui ◄── init (session の状態を読んで描画/モード通知 popup を出す)
    mode ◄── init (session+enabled を集約して外向きモード名を導出)
    User VimeModeChanged ◄── init (モード名が変わったときに発火・data に mode テーブル)
+   User VimePreeditChanged ◄── init (未確定が変わったときに発火・data={state,preedit,available})
 import(CLI) ──► skk ──► (register fn 注入 = anthy.register_word)   # エディタとは別プロセス
 config ──► (各モジュールが参照)
 init ──► 全モジュールを結線するコントローラ
@@ -84,6 +85,12 @@ init ──► integrations/* (opt-in。is_enabled を依存注入で渡し、�
 - `skk` は SKK 辞書（JISYO JSON）の解析と取り込みを担い、`anthy` へは直接依存せず `register(yomi, word)` コールバック注入で動く（DIP・純粋部分はテスト容易）。辞書取り込みはエディタ内ではなく CLI（`import.lua`）から `skk.load` に `anthy.register_word` を注入して実行する（別プロセス＝エディタを止めない）。
 - `init` がコントローラ。バッファ・カーソル位置・未確定領域（`start_col`/`len`）・popup 状態を保持し、`session` の状態変化を `ui` 描画へ流す唯一の場所。`init` は辞書取り込みに関与しない。
 - `integrations/*` は **opt-in** な外部プラグイン連携層。`pcall(require, "<plugin>")` で optional 依存にし、未インストールでも本体は壊れない。本体（`session`/`anthy`/`ui` 等）は integrations を一切 require しない（**依存方向は init → integrations → 外部プラグインの片方向**）。`is_enabled` のような本体の公開 API は関数参照を渡す形で注入し、循環 require を避ける。
+- **自前自動補完**（`completion.enabled`、既定 ON）は composing 中に `session:completion_candidates()` の候補を自前 popup（`ui.show_popup`、変換フローと共用）で自動表示する。設計判断:
+  - **補完は外部補完エンジン（nvim-cmp 等）に委譲しない**。vime は未確定を実テキストとして byte 単位（`start_col`/`len`）で管理しており、外部エンジンは候補の選択・確定・クローズでバッファを非同期に書き替える。「バッファの書き手が 2 人」になると二重挿入・巻き戻し・断片混入が原理的に避けられない（nvim-cmp source 統合を実装・検証して確認済み）。自前 popup なら全操作が同期・単独書き手で、plenary のヘッドレステストで end-to-end 検証できる。
+  - 候補は「文節ごとのベスト連結」を先頭に「全文 1 文節候補群」を dedup して並べる（`session:completion_candidates()`）。入力のたびに再計算して popup を追従し、候補が無い状態（未確定なし・英字ラン・変換中など）で自動クローズする。
+  - `<C-n>/<C-p>` は popup 表示中のみ buffer-local に張る（`keymap.attach_completion`、converting 限定キーと同じ動的 attach パターン。composing/converting は排他なので同じ lhs でも衝突しない）。選択は **インライン置換**: 未確定領域の表示を候補テキストへ `set_region_text` で置き換える（`session` は読みを保持し続けるので、`<Space>` の通常変換や `<BS>` の選択解除は読みへそのまま戻れる）。
+  - 確定（`<CR>`・選択したまま次の文字・InsertLeave・toggle OFF）は `session:commit_completion(item)` で anthy へ学習 commit する。未確定領域は選択時に置換済みなので、領域の追跡（`start_col += len`）だけ進める。
+  - 補完確定は API 置換のため dot repeat（`.`）には載らない（`<Space>`/`<CR>` の変換フローは従来どおり feedkeys 経路で dot repeat 対応）。
 
 ### 3.2 各モジュールの責務と主要 API
 
@@ -135,6 +142,8 @@ s:backspace()               -- かな単位で1文字削除（latin セグメン
 s:start_conversion()        -- composing(kana セグメント有) → converting（先頭 kana から anthy.convert）
 s:segments()                -- 表示ビュー { list = {各文節の選択テキスト}, current = 注目index }
 s:candidates()              -- 注目文節の全候補（popup 用）
+s:completion_candidates()   -- composing(単一 kana)中の補完候補 {text,yomi,single}[]（先頭=ベスト連結）
+s:commit_completion(item)   -- 補完候補 item を Anthy に学習 commit し composing(空)へ。text を返す
 s:select(idx) / s:next_candidate()
 s:next_segment() / s:prev_segment()
 s:expand() / s:shrink()     -- 注目文節を伸長/短縮（anthy.resize）
