@@ -464,3 +464,88 @@ describe("vime.session CONVERTING (real anthy)", function()
     assert.are.equal(target, s2:segments().list[2]) -- 既定が学習結果に変化
   end)
 end)
+
+describe("vime.session completion candidates", function()
+  it("returns the per-segment best concatenation as the first candidate", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+
+    local ref = new()
+    type_in(ref, "kyouhaii")
+    ref:start_conversion()
+    local expected = table.concat(ref:segments().list)
+
+    assert.are.equal(expected, items[1].text)
+    assert.is_false(items[1].single)
+    for _, item in ipairs(items) do
+      assert.are.equal("きょうはいい", item.yomi)
+    end
+  end)
+
+  it("appends whole-string single-segment candidates after the best concatenation", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+    assert.is_true(#items >= 2)
+    for i = 2, #items do
+      assert.is_true(items[i].single)
+      assert.is_true(#items[i].text > 0)
+    end
+  end)
+
+  it("dedups candidates by text", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+    local seen = {}
+    for _, item in ipairs(items) do
+      assert.is_nil(seen[item.text])
+      seen[item.text] = true
+    end
+  end)
+
+  it("returns empty during a latin run", function()
+    local s = new()
+    type_in(s, "Vim")
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty in ascii mode", function()
+    local s = new()
+    type_in(s, ";abc")
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty while the reading has unfinished romaji", function()
+    local s = new()
+    type_in(s, "ky")
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty while converting", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:start_conversion()
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("returns empty when the buffer has mixed segments", function()
+    local s = new()
+    type_in(s, "aka;iPhone;wo") -- kana / latin(closed) / kana の3セグメント混在
+    assert.are.same({}, s:completion_candidates())
+  end)
+
+  it("does not disturb the subsequent Space conversion flow", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    s:completion_candidates() -- 呼んでも converting フローに影響しない
+
+    local ref = new()
+    type_in(ref, "kyouhaii")
+    ref:start_conversion()
+
+    s:start_conversion()
+    assert.are.same(ref:segments().list, s:segments().list)
+  end)
+end)
