@@ -501,6 +501,9 @@ end)
 describe("vime converting-only keymaps follow state transitions", function()
   -- converting 状態でのみ vime が文節操作系キー(C-f/C-b/C-n/C-p/C-o/C-i)を奪い、
   -- composing / ASCII 直入力 / direct ではユーザの insert マッピングを生かす。
+  -- 自前補完は composing 中に C-n/C-p を握るため、この describe では無効化して
+  -- converting 限定キーの遷移だけを検証する(補完側の attach/detach は built-in
+  -- completion の describe で検証する)。
   local CONVERTING_KEYS = { "<C-F>", "<C-B>", "<C-N>", "<C-P>", "<C-O>", "<C-I>" }
 
   local function any_mapped(buf)
@@ -525,7 +528,11 @@ describe("vime converting-only keymaps follow state transitions", function()
     if vime.is_enabled() then
       vime.toggle()
     end
-    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+    vime.setup({
+      anthy = { lib = LIB },
+      mode_notify = { enabled = false },
+      completion = { enabled = false },
+    })
   end)
 
   after_each(function()
@@ -986,4 +993,169 @@ describe("vime completion integration", function()
     vim.cmd("stopinsert")
   end)
 
+end)
+
+describe("vime built-in completion", function()
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  -- 表示中の floating window を数える(mode_notify は無効化してあるので候補 popup のみ)。
+  local function floating_wins()
+    local n = 0
+    for _, w in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_get_config(w).relative ~= "" then
+        n = n + 1
+      end
+    end
+    return n
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("shows a candidate popup automatically while composing", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.are.equal(1, floating_wins()) -- 読み入力中は候補 popup が自動で出る
+    vime.on_commit() -- かな確定
+    assert.are.equal(0, floating_wins()) -- 確定で閉じる
+  end)
+
+  it("does not show the popup when completion is disabled", function()
+    vime.setup({
+      anthy = { lib = LIB },
+      mode_notify = { enabled = false },
+      completion = { enabled = false },
+    })
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.are.equal(0, floating_wins())
+  end)
+
+  it("attaches candidate keys only while the popup is open", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    local function has_cn_map()
+      for _, m in ipairs(api.nvim_buf_get_keymap(buf, "i")) do
+        if m.lhs == "<C-N>" then
+          return true
+        end
+      end
+      return false
+    end
+    assert.is_false(has_cn_map()) -- 未入力では握らない(ユーザの C-n が生きる)
+    for ch in ("sora"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.is_true(has_cn_map()) -- popup 表示中は候補選択キーを握る
+    vime.on_commit()
+    assert.is_false(has_cn_map()) -- 確定で解放
+  end)
+
+  it("selects candidates inline with next/prev and wraps back to the reading", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("sekai"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1]) -- インライン置換
+    vime.on_next_candidate()
+    assert.are.equal(items[2].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_prev_candidate()
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_prev_candidate()
+    assert.are.equal("せかい", api.nvim_buf_get_lines(buf, 0, 1, false)[1]) -- 読みへ戻る(wrap)
+  end)
+
+  it("commits the selected candidate with the commit key", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kikai"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    vime.on_commit()
+
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal("composing", vime.mode().state)
+    assert.is_false(vime.completion_active()) -- 未確定は空
+    assert.are.equal(0, floating_wins())
+  end)
+
+  it("typing while a candidate is selected commits it first", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("hokan"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    vime.on_input("g") -- 選択したまま次の文字
+
+    -- 選択候補が確定され、g は新しい読みの 1 文字目になる
+    assert.are.equal(items[1].text .. "g", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("starts conversion from the reading even while a candidate is selected", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyouto"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_next_candidate() -- 候補を選択した状態で
+
+    vime.on_convert() -- <Space> は読みの通常変換へ
+
+    assert.are.equal("converting", vime.mode().state)
+    -- 変換結果は読み由来(参照用 session の変換と一致)
+    local ref = require("vime.session").new(require("vime.anthy"))
+    for ch in ("kyouto"):gmatch(".") do
+      ref:input(ch)
+    end
+    ref:start_conversion()
+    assert.are.equal(table.concat(ref:segments().list), api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("deselects back to the reading with backspace", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("asita"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local items = vime.completion_context().items
+
+    vime.on_next_candidate()
+    assert.are.equal(items[1].text, api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_backspace() -- 1 回目は選択解除のみ
+    assert.are.equal("あした", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vime.on_backspace() -- 2 回目から通常のかな削除
+    assert.are.equal("あし", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
 end)

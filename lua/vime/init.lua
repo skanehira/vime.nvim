@@ -50,7 +50,11 @@ local st = {
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
   last_preedit_key = nil, -- 直近通知した preedit の状態キー(VimePreeditChanged の変化検出)
+  -- 自前自動補完の状態。items ~= nil が popup 表示中。index は選択位置(0=未選択・読みのまま)。
+  -- 選択中は未確定領域の表示を候補テキストへインライン置換する(session は読みを保持)。
+  completion = { items = nil, index = 0 },
   converting_keys_attached = false, -- converting 限定キーマップの現状(変化時のみ keymap を触る)
+  completion_keys_attached = false, -- 補完限定キーマップ(C-n/C-p)の現状
 }
 
 -- handlers() ローカルテーブル生成関数の forward declare。
@@ -132,6 +136,94 @@ local function open_popup_window()
   show_candidate_window(st.session:candidates(), st.session:current_candidate_index() or 1)
 end
 
+----------------------------------------------------------------------
+-- 自前自動補完(composing 中の候補 popup とインライン選択)
+----------------------------------------------------------------------
+
+-- 補完限定キーマップ(C-n/C-p)を popup の表示状態に追従させる(冪等)。
+-- converting 限定キーと同じ lhs だが、composing/converting は排他なので衝突しない。
+local function sync_completion_keymap()
+  if not st.enabled then
+    return
+  end
+  local open = st.completion.items ~= nil
+  if open and not st.completion_keys_attached then
+    keymap.attach_completion(st.buf, st.cfg, handlers())
+    st.completion_keys_attached = true
+  elseif not open and st.completion_keys_attached then
+    keymap.detach_completion(st.buf)
+    st.completion_keys_attached = false
+  end
+end
+
+-- 補完状態を破棄して popup を閉じる。未確定領域のテキストは触らない
+-- (必要なら呼び出し側が描画し直す)。
+local function reset_completion()
+  st.completion.items = nil
+  st.completion.index = 0
+  ui.close_popup()
+  sync_completion_keymap()
+end
+
+local function completion_texts()
+  local texts = {}
+  for i, item in ipairs(st.completion.items) do
+    texts[i] = item.text
+  end
+  return texts
+end
+
+-- composing 中の未確定に対する補完候補を(再)計算して popup を出す。
+-- 候補が無い状態(未確定なし・英字ラン・変換中など)なら閉じる。
+local function refresh_completion()
+  if not st.cfg.completion.enabled then
+    return
+  end
+  local items = (st.enabled and st.session:state() == "composing") and st.session:completion_candidates()
+    or {}
+  if #items == 0 then
+    reset_completion()
+    return
+  end
+  st.completion.items = items
+  st.completion.index = 0
+  show_candidate_window(completion_texts(), nil)
+  sync_completion_keymap()
+end
+
+-- 補完候補の選択を delta(+1/-1)方向へ動かす。index 0(読みのまま)も循環に含める。
+-- 選択中は未確定領域の表示を候補テキストへインライン置換する(session は読みを保持)。
+local function select_completion(delta)
+  local items = st.completion.items
+  if not items then
+    return
+  end
+  st.completion.index = (st.completion.index + delta) % (#items + 1)
+  local idx = st.completion.index
+  local text = idx == 0 and st.session:preedit() or items[idx].text
+  ui.clear(st.buf) -- 旧範囲の下線と popup を消す(popup は直後に開き直す)
+  set_region_text(text)
+  ui.highlight_preedit(st.buf, st.row, st.start_col, #text)
+  show_candidate_window(completion_texts(), idx ~= 0 and idx or nil)
+  place_cursor()
+end
+
+-- 選択中の補完候補を確定する(anthy へ学習 + 空 composing へ)。確定したら true。
+-- 未確定領域は選択時に候補テキストへ置換済みなので、領域を確定分だけ進めるだけでよい。
+local function commit_completion_selection()
+  local items = st.completion.items
+  if not (items and st.completion.index > 0) then
+    return false
+  end
+  st.session:commit_completion(items[st.completion.index])
+  ui.clear(st.buf) -- 下線と popup を消す(確定テキストはインライン置換済みのまま残す)
+  st.start_col = st.start_col + st.len
+  st.len = 0
+  reset_completion()
+  place_cursor()
+  return true
+end
+
 -- 現在の session 状態をバッファ＋ハイライトへ反映する。popup は開いていれば追従表示する。
 -- セグメント混在(kana/latin/confirmed/converting 中の注目 kana)を順番に描く。
 local function render()
@@ -182,6 +274,7 @@ end
 -- sync_anchor が再アンカーする(len==0 なので効く)。
 -- 非挿入モード(direct handler 呼び出し・disable 等)は従来どおり API で置換する。
 local function finalize(text)
+  reset_completion() -- 補完 popup と選択状態はどの確定経路でも破棄する
   if in_insert_mode() then
     set_region_text("") -- preedit を API で削除(redo には載せない)
     ui.clear(st.buf)
@@ -247,6 +340,9 @@ function M.on_input(ch)
     return
   end
   sync_anchor()
+  -- 補完候補を選択したまま次の文字を打ったら、先に選択候補を確定する(Google 日本語入力風)。
+  -- 確定は同期なので、ch はそのまま新しい読みの 1 文字目として続けて処理される。
+  commit_completion_selection()
   -- 挿入モードで確定が起きる場合は feedkeys 経路にする。session:input(ch) は確定と ch の
   -- 取り込みを同時に行い render も同期に走るが、finalize の fed テキスト挿入は非同期なので
   -- 位置がズレる。代わりに commit だけ先に済ませて確定テキストを feed し、ch を後段へ
@@ -264,6 +360,7 @@ function M.on_input(ch)
     finalize(confirmed)
   end
   render()
+  refresh_completion()
 end
 
 function M.on_convert()
@@ -281,6 +378,8 @@ function M.on_convert()
       insert_literal(" ") -- 未確定なし: 通常のスペース
       return
     end
+    -- 補完の選択中でも <Space> は読みの通常変換に入る(session は読みを保持している)。
+    reset_completion()
     st.session:start_conversion()
     st.popup_open = false -- 1回目の Space は変換開始のみ(候補一覧は出さない)
     render()
@@ -296,6 +395,10 @@ function M.on_commit()
     return
   end
   sync_anchor()
+  -- 補完候補が選択されていれば、それを <CR> で確定する(Google 日本語入力風)。
+  if commit_completion_selection() then
+    return
+  end
   if st.session:state() == "composing" and st.session:preedit() == "" then
     insert_literal("\n") -- 未確定なし: 通常の改行
     return
@@ -315,10 +418,16 @@ function M.on_cancel()
   end
   st.session:cancel()
   render()
+  refresh_completion() -- 変換取消で読みへ戻ったら補完を出し直す(未確定なしなら閉じる)
 end
 
 function M.on_backspace()
   if not st.enabled then
+    return
+  end
+  -- 補完候補の選択中は、まず選択を解除して読みへ戻す(削除はしない)。
+  if st.completion.items and st.completion.index > 0 then
+    select_completion(-st.completion.index) -- index 0(読み)へ
     return
   end
   if st.session:state() == "composing" and st.session:preedit() == "" then
@@ -328,6 +437,7 @@ function M.on_backspace()
   end
   st.session:backspace()
   render()
+  refresh_completion()
 end
 
 -- F7: 現在の読みをカタカナに変換して確定する。
@@ -362,6 +472,7 @@ function M.on_kill(key)
   sync_anchor()
   if st.session:state() == "converting" or st.session:preedit() ~= "" then
     st.session:clear()
+    reset_completion()
     render() -- 未確定を消す
   else
     api.nvim_feedkeys(api.nvim_replace_termcodes(key, true, false, true), "n", false)
@@ -378,6 +489,12 @@ function M.on_insert_leave()
   if not (st.buf and api.nvim_buf_is_valid(st.buf) and api.nvim_get_current_buf() == st.buf) then
     return
   end
+  -- 補完候補の選択中は選択候補で確定する(学習も走る)。
+  if commit_completion_selection() then
+    st.popup_open = false
+    return
+  end
+  reset_completion()
   local s = st.session
   if s and (s:state() == "converting" or s:preedit() ~= "") then
     s:commit() -- 変換中なら学習。確定テキストは既にバッファにあるので残す
@@ -415,20 +532,30 @@ function M.on_shrink()
   end
 end
 
--- 変換中のみ候補を次/前へ送り、popup を更新する。
+-- 変換中は文節候補を、composing の補完 popup 表示中は補完候補を次/前へ送る。
 function M.on_next_candidate()
-  if st.enabled and st.session:state() == "converting" then
+  if not st.enabled then
+    return
+  end
+  if st.session:state() == "converting" then
     st.session:next_candidate()
     st.popup_open = true
     render()
+  elseif st.completion.items then
+    select_completion(1)
   end
 end
 
 function M.on_prev_candidate()
-  if st.enabled and st.session:state() == "converting" then
+  if not st.enabled then
+    return
+  end
+  if st.session:state() == "converting" then
     st.session:prev_candidate()
     st.popup_open = true
     render()
+  elseif st.completion.items then
+    select_completion(-1)
   end
 end
 
@@ -578,6 +705,7 @@ local function attach_to_current_buf()
       keymap.detach(st.buf)
     end
     st.converting_keys_attached = false
+    st.completion_keys_attached = false
   end
   st.buf = new_buf
   local cur = api.nvim_win_get_cursor(0)
@@ -585,6 +713,8 @@ local function attach_to_current_buf()
   st.start_col = cur[2]
   st.len = 0
   st.popup_open = false
+  st.completion.items = nil
+  st.completion.index = 0
   keymap.attach(st.buf, st.cfg, handlers())
 end
 
@@ -599,6 +729,10 @@ end
 
 local function disable()
   local valid = st.buf and api.nvim_buf_is_valid(st.buf)
+  -- 補完候補の選択中は選択候補で確定してから OFF(学習も走る)
+  if valid and commit_completion_selection() then
+    st.popup_open = false
+  end
   -- 未確定/変換中があれば確定してから OFF
   local s = st.session
   if s and valid and (s:state() == "converting" or s:preedit() ~= "") then
@@ -606,11 +740,14 @@ local function disable()
   end
   if valid then
     ui.clear(st.buf)
-    keymap.detach(st.buf) -- 共通・converting 限定マップを両方掃除する
+    keymap.detach(st.buf) -- 共通・converting/補完限定マップをすべて掃除する
   end
   st.enabled = false
   st.session = nil
   st.converting_keys_attached = false
+  st.completion_keys_attached = false
+  st.completion.items = nil
+  st.completion.index = 0
 end
 
 -- 日本語入力 ON/OFF をトグルする。
