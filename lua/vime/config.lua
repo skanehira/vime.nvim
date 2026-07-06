@@ -41,7 +41,8 @@ M.defaults = {
     highlight = nil,
   },
   integrations = {
-    -- nvim-cmp 連携。true で vime モード ON 中は cmp の補完を抑止する。
+    -- nvim-cmp 連携。false=無効 / true=vime モード ON 中は cmp の補完を抑止する /
+    -- "source"=抑止に加え、読み入力中に vime の変換候補を cmp source として自動表示する。
     nvim_cmp = false,
   },
 }

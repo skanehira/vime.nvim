@@ -714,7 +714,15 @@ function M.setup(opts)
   })
 
   if st.cfg.integrations.nvim_cmp then
-    require("vime.integrations.nvim_cmp").attach(M.is_enabled, group)
+    -- "source" のときは抑止に加えて vime 候補を cmp source として提供する。
+    local source_api = st.cfg.integrations.nvim_cmp == "source"
+        and {
+          completion_active = M.completion_active,
+          completion_context = M.completion_context,
+          commit_completion = M.commit_completion,
+        }
+      or nil
+    require("vime.integrations.nvim_cmp").attach(M.is_enabled, group, source_api)
   end
 end
 

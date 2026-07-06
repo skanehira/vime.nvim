@@ -60,6 +60,11 @@ describe("vime.config.merge", function()
     assert.is_true(c.integrations.nvim_cmp)
   end)
 
+  it("keeps the \"source\" value for nvim_cmp (抑止 + 候補提供)", function()
+    local c = config.merge({ integrations = { nvim_cmp = "source" } })
+    assert.are.equal("source", c.integrations.nvim_cmp)
+  end)
+
   it("defaults romaji.table to nil (use built-in wapuro table)", function()
     local c = config.merge(nil)
     assert.is_nil(c.romaji.table)
