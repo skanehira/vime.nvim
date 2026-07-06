@@ -49,6 +49,7 @@ local st = {
   len = 0, -- 未確定領域の byte 長
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
+  last_preedit_key = nil, -- 直近通知した preedit の状態キー(VimePreeditChanged の変化検出)
   converting_keys_attached = false, -- converting 限定キーマップの現状(変化時のみ keymap を触る)
 }
 
@@ -480,6 +481,66 @@ local function notify_mode_change_if_needed()
   end
 end
 
+-- 補完(nvim-cmp)が候補を出しうる状態か。enabled かつ composing かつ未確定がある。
+-- enabled() から高頻度で呼ばれうるため、候補生成はせず軽量に判定する。
+function M.completion_active()
+  local s = st.session
+  return st.enabled and s ~= nil and s:state() == "composing" and s:preedit() ~= ""
+end
+
+-- 補完コンテキスト。候補が無ければ nil。cmp source の complete から呼ばれる(候補生成を伴う重い経路)。
+-- 未確定領域の byte 位置(row/start_col/len)と読み yomi・候補 items を返す。
+function M.completion_context()
+  if not M.completion_active() then
+    return nil
+  end
+  local items = st.session:completion_candidates()
+  if #items == 0 then
+    return nil
+  end
+  return {
+    row = st.row,
+    start_col = st.start_col,
+    len = st.len,
+    yomi = items[1].yomi,
+    items = items,
+  }
+end
+
+-- cmp が textEdit で未確定領域を候補テキストへ置換した後に呼ばれる。session を学習 commit し、
+-- IME 状態(extmark・未確定領域長・popup)を掃除する。バッファ操作は cmp が済ませているので行わない。
+-- 次のハンドラの sync_anchor が len==0 で実カーソル位置へ再アンカーする。
+function M.commit_completion(item)
+  if not (st.enabled and st.session and st.buf and api.nvim_buf_is_valid(st.buf)) then
+    return
+  end
+  st.session:commit_completion(item)
+  ui.clear(st.buf)
+  st.len = 0
+  st.popup_open = false
+  st.last_preedit_key = nil -- 同じ読みを再入力したときに再通知されるようリセット
+  sync_converting_keymap()
+end
+
+-- 未確定文字列が直近通知から変わっていれば User VimePreeditChanged を発火する。
+-- data = { state, preedit, available }。integration 側が available で cmp.complete/close を切り替える。
+-- 公開ハンドラ・toggle・on_insert_leave の末尾でラップ越しに呼ばれる。
+local function notify_preedit_change_if_needed()
+  local s = st.session
+  local active = st.enabled and s ~= nil
+  local state = active and s:state() or "direct"
+  local preedit = active and s:preedit() or ""
+  local key = state .. "\0" .. preedit
+  if st.last_preedit_key == key then
+    return
+  end
+  st.last_preedit_key = key
+  api.nvim_exec_autocmds("User", {
+    pattern = "VimePreeditChanged",
+    data = { state = state, preedit = preedit, available = M.completion_active() },
+  })
+end
+
 handlers = function()
   return {
     input = M.on_input,
@@ -606,6 +667,7 @@ for _, name in ipairs(NOTIFY_TARGETS) do
   M[name] = function(...)
     local r = fn(...)
     notify_mode_change_if_needed()
+    notify_preedit_change_if_needed()
     return r
   end
 end

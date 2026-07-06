@@ -862,3 +862,127 @@ describe("vime integrations wiring", function()
     vime.setup({ anthy = { lib = LIB } })
   end)
 end)
+
+describe("vime completion integration", function()
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  -- User VimePreeditChanged を購読して data を順に集める。返り値の autocmd id は呼び出し側で del する。
+  local function collect_preedit_events()
+    local events = {}
+    local id = api.nvim_create_autocmd("User", {
+      pattern = "VimePreeditChanged",
+      callback = function(args)
+        events[#events + 1] = args.data
+      end,
+    })
+    return events, id
+  end
+
+  it("fires User VimePreeditChanged as the preedit changes", function()
+    fresh_buf()
+    vime.toggle()
+    local events, id = collect_preedit_events()
+    vime.on_input("k")
+    vime.on_input("a")
+    api.nvim_del_autocmd(id)
+    assert.are.equal(2, #events) -- キー入力ごとに1回
+    assert.are.equal("か", events[#events].preedit)
+    assert.is_true(events[#events].available)
+  end)
+
+  it("fires VimePreeditChanged with an empty preedit after commit", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("ka"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local events, id = collect_preedit_events()
+    vime.on_commit() -- 確定 → 未確定が空に
+    api.nvim_del_autocmd(id)
+    assert.is_true(#events >= 1)
+    assert.are.equal("", events[#events].preedit)
+    assert.is_false(events[#events].available)
+  end)
+
+  it("does not refire VimePreeditChanged when the preedit is unchanged", function()
+    fresh_buf()
+    vime.toggle()
+    local events, id = collect_preedit_events()
+    vime.on_convert() -- 未確定なし → スペース挿入。session の preedit は "" のまま
+    api.nvim_del_autocmd(id)
+    assert.are.equal(0, #events)
+  end)
+
+  it("exposes completion_active only while composing with a preedit", function()
+    fresh_buf()
+    assert.is_false(vime.completion_active()) -- OFF
+    vime.toggle()
+    assert.is_false(vime.completion_active()) -- ON だが未確定なし
+    for ch in ("ka"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.is_true(vime.completion_active()) -- composing + 未確定あり
+    vime.on_convert() -- 変換開始 → converting
+    assert.is_false(vime.completion_active())
+  end)
+
+  it("completion_context returns the preedit byte region and candidate items", function()
+    fresh_buf()
+    vime.toggle()
+    for ch in ("kyouhaii"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local ctx = vime.completion_context()
+    assert.is_not_nil(ctx)
+    assert.are.equal(0, ctx.row)
+    assert.are.equal(0, ctx.start_col)
+    assert.are.equal(#"きょうはいい", ctx.len) -- byte 長
+    assert.are.equal("きょうはいい", ctx.yomi)
+    assert.is_true(#ctx.items >= 1)
+  end)
+
+  it("commit_completion clears IME state after cmp replaced the region", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyouhaii"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    local ctx = vime.completion_context()
+    local item = ctx.items[1]
+    -- cmp の確定は挿入モードで起こり、カーソルは行末(確定テキストの直後)へ置かれる。
+    -- ノーマルモードだと行末のマルチバイト文字手前へクランプされ再現にならないため挿入モードにする。
+    vim.cmd("startinsert")
+    -- cmp が textEdit で未確定領域を候補テキストへ置換したのを模擬する
+    api.nvim_buf_set_text(buf, ctx.row, ctx.start_col, ctx.row, ctx.start_col + ctx.len, { item.text })
+    api.nvim_win_set_cursor(0, { ctx.row + 1, ctx.start_col + #item.text })
+
+    vime.commit_completion(item)
+
+    assert.are.equal("composing", vime.mode().state) -- 変換中でなく composing に戻る
+    local marks = api.nvim_buf_get_extmarks(buf, require("vime.ui").namespace(), 0, -1, {})
+    assert.are.equal(0, #marks) -- 未確定の extmark が掃除されている
+
+    vime.on_input("a") -- 続けて入力すると確定テキストの後ろに入る
+    assert.are.equal(item.text .. "あ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    vim.cmd("stopinsert")
+  end)
+end)
