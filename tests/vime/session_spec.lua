@@ -549,3 +549,46 @@ describe("vime.session completion candidates", function()
     assert.are.same(ref:segments().list, s:segments().list)
   end)
 end)
+
+describe("vime.session commit_completion", function()
+  it("commit_completion resets to an empty composing state and returns the text", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local items = s:completion_candidates()
+    local result = s:commit_completion(items[1])
+    assert.are.equal(items[1].text, result)
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
+
+  it("commit_completion skips learning safely when the text is not a candidate", function()
+    local s = new()
+    type_in(s, "kyouhaii")
+    local fake = { text = "存在しない捏造語", yomi = "きょうはいい", single = true }
+    local result
+    assert.has_no.errors(function()
+      result = s:commit_completion(fake)
+    end)
+    assert.are.equal("存在しない捏造語", result)
+    assert.are.equal("composing", s:state())
+    assert.are.equal("", s:preedit())
+  end)
+
+  -- 学習は後続の既定を変えうるため describe 末尾に置く。
+  -- 単一文節に収まる読み(きかい=機会/機械/奇怪…)で、非既定の single 候補を確定すると
+  -- 学習によりそれが次回のベスト(items[1])へ昇格することを相対変化で検証する(辞書非依存)。
+  it("learns the committed single-segment candidate so it becomes the next best", function()
+    local s = new()
+    type_in(s, "kikai")
+    local items = s:completion_candidates()
+    local target = items[2] -- 先頭ベストでない最上位の single 候補(実辞書語)
+    assert.is_true(target.single)
+
+    s:commit_completion(target)
+
+    local s2 = new()
+    type_in(s2, "kikai")
+    local best = s2:completion_candidates()[1]
+    assert.are.equal(target.text, best.text) -- 学習した候補がベストに変化
+  end)
+end)

@@ -556,6 +556,37 @@ function Session:completion_candidates()
   return items
 end
 
+-- 補完候補 item({text, yomi, single})を anthy に学習 commit し、composing を空へ戻して text を返す。
+-- yomi を再 convert してから、single なら全文1文節へ伸長し text 一致の候補 index を commit(学習)、
+-- そうでなければ全文節を既定候補(choices=1)で commit する。text がどの候補にも一致しなければ
+-- 学習をスキップする(例外は投げない)。メニュー表示と確定の間に状態が変わっていてもよいよう、
+-- 内部状態を持ち回らず item の yomi から再構築する(ステートレス)。
+function Session:commit_completion(item)
+  if not self.anthy then
+    self.anthy = self._anthy.new_session()
+  end
+  local segs = self.anthy:convert(item.yomi)
+  if item.single then
+    segs = resize_to_single_segment(self, segs, item.yomi)
+    if #segs == 1 then
+      for i, cand in ipairs(segs[1].candidates) do
+        if cand == item.text then
+          self.anthy:commit({ i })
+          break
+        end
+      end
+    end
+  else
+    local choices = {}
+    for i = 1, #segs do
+      choices[i] = 1
+    end
+    self.anthy:commit(choices)
+  end
+  reset_composing(self)
+  return item.text
+end
+
 -- 取消。converting なら注目 kana の変換を取り消し composing へ戻す(confirmed/latin は保持)。
 -- composing なら全未確定(buf)を破棄。
 function Session:cancel()
