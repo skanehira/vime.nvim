@@ -163,32 +163,52 @@ local function render()
   sync_converting_keymap()
 end
 
--- 確定単位ごとに挿入モード中の undo ブロックを区切る(:help i_CTRL-G_u)。
--- 挿入モードガード必須: ノーマルで送ると <C-G>+u(undo) になり確定済みテキストを破壊する。
--- "int" の "i"(先頭挿入)が肝: 末尾追加だと <CR> ハンドラ内で積んだ <C-G>u が後続キーや
--- <Esc> の後で処理され、ノーマルモードでの u(undo) として誤発火する。
-local function break_undo_sequence()
-  if api.nvim_get_mode().mode:sub(1, 1) == "i" then
-    api.nvim_feedkeys(api.nvim_replace_termcodes("<C-G>u", true, false, true), "int", false)
+-- 挿入モード中か。確定テキストの挿入経路(feedkeys か API か)を分岐するのに使う。
+local function in_insert_mode()
+  return api.nvim_get_mode().mode:sub(1, 1) == "i"
+end
+
+-- 未確定領域を確定テキストで置き換える。
+-- 挿入モード中は「preedit を API で消し、確定テキストを feedkeys でタイプ入力として流す」。
+-- これで native の redo に確定テキストが載り、dot repeat(`.`)・count(`3.`)・オペレータ合成
+-- (`ciw…<Esc>` の `.`)が Vim 本来の動作で効く。挿入経路が非同期になるので start_col は
+-- 進めず、place_cursor もしない。fed テキスト挿入後の実カーソル位置へ次のハンドラの
+-- sync_anchor が再アンカーする(len==0 なので効く)。
+-- 非挿入モード(direct handler 呼び出し・disable 等)は従来どおり API で置換する。
+local function finalize(text)
+  if in_insert_mode() then
+    set_region_text("") -- preedit を API で削除(redo には載せない)
+    ui.clear(st.buf)
+    st.popup_open = false
+    st.len = 0
+    sync_converting_keymap()
+    -- text と <C-G>u を 1 回の feedkeys にまとめて順序を保証する(別々に "i" で feed すると
+    -- 後発が前へ割り込み順序が逆転する)。"i"=typeahead 先頭挿入で後続 <Esc> より先に処理、
+    -- "n"=remap 無効(確定テキストが ASCII の F10 "foo" 等でも vime マッピングに再入しない)、
+    -- escape_ks=true=UTF-8 継続バイト 0x80(「む」等)の K_SPECIAL 衝突回避。
+    api.nvim_feedkeys(text .. api.nvim_replace_termcodes("<C-G>u", true, false, true), "in", true)
+  else
+    set_region_text(text)
+    ui.clear(st.buf)
+    st.popup_open = false
+    st.start_col = st.start_col + #text
+    st.len = 0
+    place_cursor()
+    sync_converting_keymap()
   end
 end
 
--- 未確定領域を確定テキストで置き換え、領域を確定後の位置へ進める。
--- 確定後は composing 状態に戻るため、converting 限定キーマップも同時に外す。
-local function finalize(text)
-  set_region_text(text)
-  ui.clear(st.buf)
-  st.popup_open = false
-  st.start_col = st.start_col + #text
-  st.len = 0
-  place_cursor()
-  sync_converting_keymap()
-  break_undo_sequence()
-end
-
 -- 未確定が無いときに通常のスペース/改行をカーソル位置へ挿入する(素通し)。
+-- 挿入モード中は feedkeys でタイプ入力として流し(redo に載せて dot repeat に含める)、
+-- "n" で Space/CR マッピングへの再入を防ぐ。<C-G>u は積まない(IME 確定ではないので
+-- Vim 標準の 1 ブロック挙動を維持する)。非挿入モードは従来どおり API で挿入する。
 local function insert_literal(text)
   if not (st.buf and api.nvim_buf_is_valid(st.buf)) then
+    return
+  end
+  if in_insert_mode() then
+    local keys = (text == "\n") and api.nvim_replace_termcodes("<CR>", true, false, true) or text
+    api.nvim_feedkeys(keys, "in", true)
     return
   end
   local cur = api.nvim_win_get_cursor(0)
@@ -206,11 +226,33 @@ end
 -- ハンドラ(keymap からディスパッチされる)
 ----------------------------------------------------------------------
 
+-- ch を session:input に流すと確定が起きるか。
+-- converting 中は任意の文字が現在の変換を確定させる。composing 中は「大文字始まりで
+-- 既存のかな未確定を英字ランへ切り替える」ときだけ確定する(ASCII モード中・英字ラン中は追記)。
+local function input_commits(s, ch)
+  if s:state() == "converting" then
+    return true
+  end
+  return ch:match("%u") ~= nil and s:preedit() ~= "" and not s:is_ascii() and not s:is_latin()
+end
+
 function M.on_input(ch)
   if not st.enabled then
     return
   end
   sync_anchor()
+  -- 挿入モードで確定が起きる場合は feedkeys 経路にする。session:input(ch) は確定と ch の
+  -- 取り込みを同時に行い render も同期に走るが、finalize の fed テキスト挿入は非同期なので
+  -- 位置がズレる。代わりに commit だけ先に済ませて確定テキストを feed し、ch を後段へ
+  -- 再投入する(fed テキストの後で on_input へ戻り、sync_anchor が正しい位置へ再アンカー)。
+  if in_insert_mode() and input_commits(st.session, ch) then
+    local confirmed = st.session:commit()
+    -- ch を先に typeahead 先頭へ積み(remap 許可で自マッピングへ戻す)、その前に確定テキストを
+    -- 積むことで [確定テキスト][<C-G>u][ch][後続キー] の順序を保証する。
+    api.nvim_feedkeys(ch, "i", true)
+    finalize(confirmed)
+    return
+  end
   local confirmed = st.session:input(ch)
   if confirmed ~= "" then
     finalize(confirmed)
