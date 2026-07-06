@@ -526,10 +526,9 @@ end
 -- data = { state, preedit, available }。integration 側が available で cmp.complete/close を切り替える。
 -- 公開ハンドラ・toggle・on_insert_leave の末尾でラップ越しに呼ばれる。
 local function notify_preedit_change_if_needed()
-  local s = st.session
-  local active = st.enabled and s ~= nil
-  local state = active and s:state() or "direct"
-  local preedit = active and s:preedit() or ""
+  local s = st.enabled and st.session or nil
+  local state = s and s:state() or "direct"
+  local preedit = s and s:preedit() or ""
   local key = state .. "\0" .. preedit
   if st.last_preedit_key == key then
     return
