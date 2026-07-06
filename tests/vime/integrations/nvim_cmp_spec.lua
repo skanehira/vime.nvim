@@ -27,3 +27,73 @@ describe("vime.integrations.nvim_cmp.compute_enabled", function()
     assert.is_false(nvim_cmp.compute_enabled(false, no, false))
   end)
 end)
+
+-- confirm_selected は <CR> 確定(Google 日本語入力風)のため on_commit から呼ばれる。
+-- cmp を fake で package.loaded に差し込み、cmp 本体なしで検証する。
+describe("vime.integrations.nvim_cmp.confirm_selected", function()
+  after_each(function()
+    package.loaded.cmp = nil
+  end)
+
+  it("confirms the entry and returns true when a candidate is selected", function()
+    local confirmed = false
+    package.loaded.cmp = {
+      visible = function()
+        return true
+      end,
+      get_selected_entry = function()
+        return { word = "今日" }
+      end,
+      confirm = function()
+        confirmed = true
+        return true
+      end,
+    }
+    assert.is_true(nvim_cmp.confirm_selected())
+    assert.is_true(confirmed)
+  end)
+
+  it("closes the menu and returns false when no candidate is selected", function()
+    -- 未選択の <CR>: cmp に確定させず、メニューを閉じてから vime のかな確定に委ねる。
+    -- (メニューを開いたまま vime が feedkeys 確定すると未確定が二重に入るため)
+    local confirmed, closed = false, false
+    package.loaded.cmp = {
+      visible = function()
+        return true
+      end,
+      get_selected_entry = function()
+        return nil
+      end,
+      confirm = function()
+        confirmed = true
+        return true
+      end,
+      close = function()
+        closed = true
+      end,
+    }
+    assert.is_false(nvim_cmp.confirm_selected())
+    assert.is_false(confirmed) -- cmp.confirm は呼ばれない
+    assert.is_true(closed) -- メニューは閉じる
+  end)
+
+  it("returns false when the menu is not visible", function()
+    package.loaded.cmp = {
+      visible = function()
+        return false
+      end,
+      get_selected_entry = function()
+        return { word = "今日" }
+      end,
+      confirm = function()
+        return true
+      end,
+    }
+    assert.is_false(nvim_cmp.confirm_selected())
+  end)
+
+  it("returns false when nvim-cmp is not available", function()
+    package.loaded.cmp = nil
+    assert.is_false(nvim_cmp.confirm_selected())
+  end)
+end)

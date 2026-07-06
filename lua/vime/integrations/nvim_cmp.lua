@@ -29,6 +29,24 @@ function M.compute_enabled(vime_active, default_enabled, source_completing)
   return default_enabled()
 end
 
+-- 補完メニューでの <CR>(Google 日本語入力風)を処理する。vime の on_commit から最初に呼ばれる。
+-- 候補が明示選択されていればそれを確定し true を返す(vime 自身の commit はしない)。
+-- 未選択でメニューが開いているだけなら、メニューを閉じて false を返し vime のかな確定に委ねる
+-- (メニューを開いたまま vime が feedkeys 確定すると未確定が二重に入るため、先に閉じる)。
+-- メニュー非表示・cmp 未ロードなら false を返し、vime 自身の commit に委ねる。
+function M.confirm_selected()
+  local ok, cmp = pcall(require, "cmp")
+  if not ok or not cmp.visible() then
+    return false
+  end
+  if cmp.get_selected_entry() ~= nil then
+    -- select=false: 明示選択された候補だけを確定する(未選択時に先頭を勝手に確定しない)
+    return cmp.confirm({ select = false }) and true or false
+  end
+  cmp.close()
+  return false
+end
+
 -- nvim-cmp のデフォルト enabled 判定を再現する(lua/cmp/config/default.lua 相当)。
 -- vime 側で enabled を上書きするとこの判定が消えるので、フォールバックとして使う。
 local function default_enabled()

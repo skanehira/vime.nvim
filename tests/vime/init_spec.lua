@@ -985,4 +985,73 @@ describe("vime completion integration", function()
     assert.are.equal(item.text .. "あ", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
     vim.cmd("stopinsert")
   end)
+
+  it("on_commit confirms the cmp selection instead of running its own commit (source mode)", function()
+    -- fake cmp: 候補が選択されている状態。<CR> でこれを確定させたい。
+    local confirmed = false
+    package.loaded.cmp = {
+      visible = function()
+        return true
+      end,
+      get_selected_entry = function()
+        return { word = "今日" }
+      end,
+      confirm = function()
+        confirmed = true
+        return true
+      end,
+    }
+    vime.setup({
+      anthy = { lib = LIB },
+      integrations = { nvim_cmp = "source" },
+      mode_notify = { enabled = false },
+    })
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+
+    vime.on_commit() -- <CR>
+
+    assert.is_true(confirmed) -- cmp.confirm が呼ばれた(選択候補を確定)
+    -- vime 自身の変換 commit は走らず、未確定はそのまま(実際の確定は cmp の textEdit+execute)
+    assert.are.equal("きょう", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    package.loaded.cmp = nil
+  end)
+
+  it("on_commit falls back to its own commit when no cmp candidate is selected (source mode)", function()
+    local confirmed = false
+    package.loaded.cmp = {
+      visible = function()
+        return true
+      end,
+      get_selected_entry = function()
+        return nil -- 未選択
+      end,
+      confirm = function()
+        confirmed = true
+        return true
+      end,
+      close = function() end,
+    }
+    vime.setup({
+      anthy = { lib = LIB },
+      integrations = { nvim_cmp = "source" },
+      mode_notify = { enabled = false },
+    })
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("kyou"):gmatch(".") do
+      vime.on_input(ch)
+    end
+
+    vime.on_commit() -- 未選択なので cmp には委譲せず vime 自身が確定する
+
+    assert.is_false(confirmed) -- cmp.confirm は呼ばれない
+    -- composing 中の <CR> はかなをそのまま確定する(未確定が空へ = 補完非アクティブ)
+    assert.is_false(vime.completion_active())
+    assert.are.equal("きょう", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    package.loaded.cmp = nil
+  end)
 end)

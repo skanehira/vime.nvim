@@ -50,6 +50,7 @@ local st = {
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
   last_preedit_key = nil, -- 直近通知した preedit の状態キー(VimePreeditChanged の変化検出)
+  completion_confirm = nil, -- source モードで注入。<CR> 時に選択中の cmp 候補を確定する関数
   converting_keys_attached = false, -- converting 限定キーマップの現状(変化時のみ keymap を触る)
 }
 
@@ -291,6 +292,11 @@ function M.on_commit()
     return
   end
   sync_anchor()
+  -- 補完メニューで候補が選択されていれば、それを <CR> で確定する(Google 日本語入力風)。
+  -- cmp が textEdit で置換し execute → commit_completion まで行うので vime 自身の commit はしない。
+  if st.completion_confirm and st.completion_confirm() then
+    return
+  end
   if st.session:state() == "composing" and st.session:preedit() == "" then
     insert_literal("\n") -- 未確定なし: 通常の改行
     return
@@ -714,6 +720,7 @@ function M.setup(opts)
 
   if st.cfg.integrations.nvim_cmp then
     -- "source" のときは抑止に加えて vime 候補を cmp source として提供する。
+    local integration = require("vime.integrations.nvim_cmp")
     local source_api = st.cfg.integrations.nvim_cmp == "source"
         and {
           completion_active = M.completion_active,
@@ -721,7 +728,9 @@ function M.setup(opts)
           commit_completion = M.commit_completion,
         }
       or nil
-    require("vime.integrations.nvim_cmp").attach(M.is_enabled, group, source_api)
+    integration.attach(M.is_enabled, group, source_api)
+    -- source モードでは <CR> で選択中候補を確定できるよう confirm フックを注入する。
+    st.completion_confirm = source_api and integration.confirm_selected or nil
   end
 end
 
