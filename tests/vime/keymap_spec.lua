@@ -246,6 +246,40 @@ describe("vime.keymap", function()
     keymap.detach_converting(buf) -- 二度呼んでも安全
   end)
 
+  it("attach_converting saves a pre-existing buffer-local mapping and detach_converting restores it", function()
+    local buf = api.nvim_create_buf(false, true)
+    local other_plugin_calls = {}
+    vim.keymap.set("i", "<C-r>", function()
+      other_plugin_calls.fired = true
+    end, { buffer = buf })
+
+    local function noop() end
+    keymap.attach_converting(buf, config.merge(nil), {
+      next_segment = noop,
+      prev_segment = noop,
+      next_candidate = noop,
+      prev_candidate = noop,
+      expand = noop,
+      shrink = noop,
+      register_word = function()
+        other_plugin_calls.vime_fired = true
+      end,
+    })
+
+    local overridden = find_map(buf, "<C-R>") or find_map(buf, "<C-r>")
+    assert.is_not_nil(overridden)
+    overridden.callback()
+    assert.is_true(other_plugin_calls.vime_fired)
+    assert.is_nil(other_plugin_calls.fired)
+
+    keymap.detach_converting(buf)
+
+    local restored = find_map(buf, "<C-R>") or find_map(buf, "<C-r>")
+    assert.is_not_nil(restored)
+    restored.callback()
+    assert.is_true(other_plugin_calls.fired)
+  end)
+
   it("detach also removes converting-only keys", function()
     local buf = api.nvim_create_buf(false, true)
     local function noop() end
@@ -279,6 +313,35 @@ describe("vime.keymap", function()
 
     assert.is_nil(find_map(buf, "a"))
     assert.is_nil(find_map(buf, "<C-F>") or find_map(buf, "<C-f>"))
+  end)
+
+  it("attach_completion saves a pre-existing buffer-local mapping and detach_completion restores it", function()
+    local buf = api.nvim_create_buf(false, true)
+    local other_plugin_calls = {}
+    vim.keymap.set("i", "<C-n>", function()
+      other_plugin_calls.fired = true
+    end, { buffer = buf })
+
+    local function noop() end
+    keymap.attach_completion(buf, config.merge(nil), {
+      next_candidate = function()
+        other_plugin_calls.vime_fired = true
+      end,
+      prev_candidate = noop,
+    })
+
+    local overridden = find_map(buf, "<C-N>") or find_map(buf, "<C-n>")
+    assert.is_not_nil(overridden)
+    overridden.callback()
+    assert.is_true(other_plugin_calls.vime_fired)
+    assert.is_nil(other_plugin_calls.fired)
+
+    keymap.detach_completion(buf)
+
+    local restored = find_map(buf, "<C-N>") or find_map(buf, "<C-n>")
+    assert.is_not_nil(restored)
+    restored.callback()
+    assert.is_true(other_plugin_calls.fired)
   end)
 
   it("maps F10 to alphabet conversion", function()

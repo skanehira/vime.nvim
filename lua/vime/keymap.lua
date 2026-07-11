@@ -34,8 +34,46 @@ local COMPLETION_ONLY = {
 }
 
 local registered = {} -- buf -> {lhs,...} (常時マッピング)
-local registered_converting = {} -- buf -> {lhs,...} (converting 限定マッピング)
-local registered_completion = {} -- buf -> {lhs,...} (補完 popup 表示中限定マッピング)
+local registered_converting = {} -- buf -> {{lhs=,saved=},...} (converting 限定マッピング)
+local registered_completion = {} -- buf -> {{lhs=,saved=},...} (補完 popup 表示中限定マッピング)
+
+-- 一時的に奪うキー(converting/補完限定)を張る。上書き前にそのバッファへ既に
+-- 張られていたマッピングがあれば保存し、detach_transient() で復元できるようにする。
+-- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
+local function attach_transient(buf, names, config, handlers, store)
+  if store[buf] then
+    return
+  end
+  local entries = {}
+  local km = config.keymaps
+  for _, name in ipairs(names) do
+    local lhs = km[name]
+    local existing = vim.api.nvim_buf_call(buf, function()
+      return vim.fn.maparg(lhs, "i", false, true)
+    end)
+    entries[#entries + 1] = { lhs = lhs, saved = next(existing) ~= nil and existing or nil }
+    vim.keymap.set("i", lhs, handlers[name], { buffer = buf, nowait = true, silent = true })
+  end
+  store[buf] = entries
+end
+
+-- attach_transient() で上書きしたキーを外す。保存済みマッピングがあれば復元し、
+-- なければ削除のみ行う。未 attach なら何もしない(冪等)。
+local function detach_transient(buf, store)
+  local entries = store[buf]
+  if not entries then
+    return
+  end
+  for _, e in ipairs(entries) do
+    pcall(vim.keymap.del, "i", e.lhs, { buffer = buf })
+    if e.saved then
+      vim.api.nvim_buf_call(buf, function()
+        vim.fn.mapset("i", false, e.saved)
+      end)
+    end
+  end
+  store[buf] = nil
+end
 
 -- buf にバッファローカルの挿入モードマッピングを張る。
 function M.attach(buf, config, handlers)
@@ -86,60 +124,30 @@ function M.detach(buf)
   registered[buf] = nil
 end
 
--- converting 状態で必要なキーだけを追加でマップする。
+-- converting 状態で必要なキーだけを追加でマップする。上書き前に既存のバッファローカル
+-- マッピングがあれば保存し、detach_converting() で元に戻す(他プラグインとの共存)。
 -- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
 function M.attach_converting(buf, config, handlers)
-  if registered_converting[buf] then
-    return
-  end
-  local lhs_list = {}
-  local km = config.keymaps
-  for _, name in ipairs(CONVERTING_ONLY) do
-    local lhs = km[name]
-    vim.keymap.set("i", lhs, handlers[name], { buffer = buf, nowait = true, silent = true })
-    lhs_list[#lhs_list + 1] = lhs
-  end
-  registered_converting[buf] = lhs_list
+  attach_transient(buf, CONVERTING_ONLY, config, handlers, registered_converting)
 end
 
--- converting 限定のマッピングだけを外す。未 attach なら何もしない(冪等)。
+-- converting 限定のマッピングだけを外す。上書き前に別のマッピングがあれば復元する。
+-- 未 attach なら何もしない(冪等)。
 function M.detach_converting(buf)
-  local lhs_list = registered_converting[buf]
-  if not lhs_list then
-    return
-  end
-  for _, lhs in ipairs(lhs_list) do
-    pcall(vim.keymap.del, "i", lhs, { buffer = buf })
-  end
-  registered_converting[buf] = nil
+  detach_transient(buf, registered_converting)
 end
 
--- 補完 popup 表示中に必要なキー(候補選択)だけを追加でマップする。
+-- 補完 popup 表示中に必要なキー(候補選択)だけを追加でマップする。上書き前に既存の
+-- バッファローカルマッピングがあれば保存し、detach_completion() で元に戻す。
 -- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
 function M.attach_completion(buf, config, handlers)
-  if registered_completion[buf] then
-    return
-  end
-  local lhs_list = {}
-  local km = config.keymaps
-  for _, name in ipairs(COMPLETION_ONLY) do
-    local lhs = km[name]
-    vim.keymap.set("i", lhs, handlers[name], { buffer = buf, nowait = true, silent = true })
-    lhs_list[#lhs_list + 1] = lhs
-  end
-  registered_completion[buf] = lhs_list
+  attach_transient(buf, COMPLETION_ONLY, config, handlers, registered_completion)
 end
 
--- 補完限定のマッピングだけを外す。未 attach なら何もしない(冪等)。
+-- 補完限定のマッピングだけを外す。上書き前に別のマッピングがあれば復元する。
+-- 未 attach なら何もしない(冪等)。
 function M.detach_completion(buf)
-  local lhs_list = registered_completion[buf]
-  if not lhs_list then
-    return
-  end
-  for _, lhs in ipairs(lhs_list) do
-    pcall(vim.keymap.del, "i", lhs, { buffer = buf })
-  end
-  registered_completion[buf] = nil
+  detach_transient(buf, registered_completion)
 end
 
 return M
