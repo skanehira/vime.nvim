@@ -9,6 +9,7 @@ describe("vime.config.merge", function()
     assert.are.equal("<F10>", c.keymaps.alphabet)
     assert.are.equal(";", c.keymaps.ascii_toggle)
     assert.are.equal("<C-r>", c.keymaps.register_word) -- 辞書登録キーの既定
+    assert.are.equal("<Esc>", c.keymaps.completion_cancel) -- 補完選択キャンセルの既定
   end)
 
   it("overrides only the specified keys and keeps the rest", function()

@@ -1142,6 +1142,55 @@ describe("vime built-in completion", function()
     assert.are.equal(table.concat(ref:segments().list), api.nvim_buf_get_lines(buf, 0, 1, false)[1])
   end)
 
+  it("cancels the selected candidate with Esc discarding the preedit like the cancel key", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("sekai"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    vime.on_next_candidate() -- 候補を選択した状態で
+
+    vime.on_completion_cancel() -- Esc
+
+    -- <C-g>(on_cancel) と同じく未確定を破棄し、popup も閉じる
+    assert.are.equal("", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.are.equal(0, floating_wins())
+    assert.is_false(vime.completion_active())
+  end)
+
+  it("passes Esc through keeping the preedit when no candidate is selected", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    for ch in ("sekai"):gmatch(".") do
+      vime.on_input(ch)
+    end
+
+    vime.on_completion_cancel() -- 選択なし(読みのまま)の Esc
+
+    -- 未確定は破棄されない(通常の Esc として素通しし、InsertLeave の確定フローに任せる)
+    assert.are.equal("せかい", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+
+  it("maps Esc only while the completion popup is open", function()
+    local buf = fresh_buf()
+    vime.toggle()
+    local function has_esc_map()
+      for _, m in ipairs(api.nvim_buf_get_keymap(buf, "i")) do
+        if m.lhs == "<Esc>" then
+          return true
+        end
+      end
+      return false
+    end
+    assert.is_false(has_esc_map()) -- 未入力では握らない(通常の Esc が生きる)
+    for ch in ("sora"):gmatch(".") do
+      vime.on_input(ch)
+    end
+    assert.is_true(has_esc_map()) -- popup 表示中は Esc を握る
+    vime.on_commit()
+    assert.is_false(has_esc_map()) -- 確定で解放
+  end)
+
   it("deselects back to the reading with backspace", function()
     local buf = fresh_buf()
     vime.toggle()

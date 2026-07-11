@@ -88,7 +88,8 @@ init ──► integrations/* (opt-in。is_enabled を依存注入で渡し、�
 - **自前自動補完**（`completion.enabled`、既定 ON）は composing 中に `session:completion_candidates()` の候補を自前 popup（`ui.show_popup`、変換フローと共用）で自動表示する。設計判断:
   - **補完は外部補完エンジン（nvim-cmp 等）に委譲しない**。vime は未確定を実テキストとして byte 単位（`start_col`/`len`）で管理しており、外部エンジンは候補の選択・確定・クローズでバッファを非同期に書き替える。「バッファの書き手が 2 人」になると二重挿入・巻き戻し・断片混入が原理的に避けられない（nvim-cmp source 統合を実装・検証して確認済み）。自前 popup なら全操作が同期・単独書き手で、plenary のヘッドレステストで end-to-end 検証できる。
   - 候補は「文節ごとのベスト連結」を先頭に「全文 1 文節候補群」を dedup して並べる（`session:completion_candidates()`）。入力のたびに再計算して popup を追従し、候補が無い状態（未確定なし・英字ラン・変換中など）で自動クローズする。
-  - `<C-n>/<C-p>` は popup 表示中のみ buffer-local に張る（`keymap.attach_completion`、converting 限定キーと同じ動的 attach パターン。composing/converting は排他なので同じ lhs でも衝突しない）。選択は **インライン置換**: 未確定領域の表示を候補テキストへ `set_region_text` で置き換える（`session` は読みを保持し続けるので、`<Space>` の通常変換や `<BS>` の選択解除は読みへそのまま戻れる）。
+  - `<C-n>/<C-p>`・`<Esc>`（`completion_cancel`）は popup 表示中のみ buffer-local に張る（`keymap.attach_completion`、converting 限定キーと同じ動的 attach パターン。composing/converting は排他なので同じ lhs でも衝突しない）。選択は **インライン置換**: 未確定領域の表示を候補テキストへ `set_region_text` で置き換える（`session` は読みを保持し続けるので、`<Space>` の通常変換や `<BS>` の選択解除は読みへそのまま戻れる）。
+  - 取消: 候補の **選択中**（インライン置換中）の `<Esc>` は `<C-g>`（cancel）と同じく未確定を破棄する（挿入モードには留まる）。候補 **未選択**（読みのまま）の `<Esc>` は素通しし、従来どおり挿入モードを抜けて InsertLeave が読みを確定する。
   - 確定（`<CR>`・選択したまま次の文字・InsertLeave・toggle OFF）は `session:commit_completion(item)` で anthy へ学習 commit する。未確定領域は選択時に置換済みなので、領域の追跡（`start_col += len`）だけ進める。
   - 補完確定は API 置換のため dot repeat（`.`）には載らない（`<Space>`/`<CR>` の変換フローは従来どおり feedkeys 経路で dot repeat 対応）。
 
@@ -342,6 +343,7 @@ require("vime").setup({
     next_candidate = "<C-n>", prev_candidate = "<C-p>", alphabet = "<F10>",
     ascii_toggle = ";",     -- ASCII モード入退室。nil で無効化
     register_word = "<C-r>", -- CONVERTING 中に注目文節を私的辞書へ登録して確定
+    completion_cancel = "<Esc>", -- 補完候補の選択中は cancel と同じ取消。未選択なら素通し
   },
   mode_notify = {
     enabled = true,         -- モード切替時にカーソル下へ短時間ラベルを出す

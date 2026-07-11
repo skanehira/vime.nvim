@@ -420,6 +420,16 @@ function M.on_cancel()
   refresh_completion() -- 変換取消で読みへ戻ったら補完を出し直す(未確定なしなら閉じる)
 end
 
+-- Esc(補完 popup 表示中のみマップ): 候補の選択中は cancel(<C-g>)と同じく未確定を破棄する。
+-- 未選択(読みのまま)なら通常の Esc として素通しし、InsertLeave の確定フローに任せる。
+function M.on_completion_cancel()
+  if st.enabled and st.completion.items and st.completion.index > 0 then
+    M.on_cancel()
+    return
+  end
+  api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+end
+
 function M.on_backspace()
   if not st.enabled then
     return
@@ -684,6 +694,7 @@ handlers = function()
     shrink = M.on_shrink,
     next_candidate = M.on_next_candidate,
     prev_candidate = M.on_prev_candidate,
+    completion_cancel = M.on_completion_cancel,
     katakana = M.on_katakana,
     alphabet = M.on_alphabet,
     kill = M.on_kill,

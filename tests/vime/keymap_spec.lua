@@ -328,6 +328,7 @@ describe("vime.keymap", function()
         other_plugin_calls.vime_fired = true
       end,
       prev_candidate = noop,
+      completion_cancel = noop,
     })
 
     local overridden = find_map(buf, "<C-N>") or find_map(buf, "<C-n>")

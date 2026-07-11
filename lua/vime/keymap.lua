@@ -31,6 +31,7 @@ local CONVERTING_ONLY = {
 local COMPLETION_ONLY = {
   "next_candidate",
   "prev_candidate",
+  "completion_cancel",
 }
 
 local registered = {} -- buf -> {lhs,...} (常時マッピング)
