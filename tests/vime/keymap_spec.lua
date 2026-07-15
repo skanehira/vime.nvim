@@ -374,3 +374,134 @@ describe("vime.keymap", function()
     assert.is_true(calls.alphabet)
   end)
 end)
+
+describe("vime.keymap global scope (mode c)", function()
+  local function find_global_map(lhs)
+    for _, m in ipairs(api.nvim_get_keymap("c")) do
+      if m.lhs == lhs then
+        return m
+      end
+    end
+    return nil
+  end
+
+  local function noop_handlers(overrides)
+    local function noop() end
+    local h = {
+      input = noop,
+      convert = noop,
+      commit = noop,
+      cancel = noop,
+      backspace = noop,
+      next_segment = noop,
+      prev_segment = noop,
+      expand = noop,
+      shrink = noop,
+      katakana = noop,
+      alphabet = noop,
+      next_candidate = noop,
+      prev_candidate = noop,
+      register_word = noop,
+    }
+    return vim.tbl_extend("force", h, overrides or {})
+  end
+
+  it("attaches globally (not buffer-local) when mode is c", function()
+    local buf = api.nvim_create_buf(false, true)
+    local calls = {}
+    keymap.attach(
+      buf,
+      config.merge(nil),
+      noop_handlers({
+        input = function(ch)
+          calls.input = ch
+        end,
+      }),
+      "c"
+    )
+
+    local a = find_global_map("a")
+    assert.is_not_nil(a)
+    assert.are.equal(0, a.buf) -- グローバルマッピング(buffer-local ではない)
+    a.callback()
+    assert.are.equal("a", calls.input)
+
+    keymap.detach(buf, "c")
+  end)
+
+  it("detach(buf, 'c') removes the global mapping", function()
+    local buf = api.nvim_create_buf(false, true)
+    keymap.attach(buf, config.merge(nil), noop_handlers(), "c")
+    keymap.detach(buf, "c")
+    assert.is_nil(find_global_map("a"))
+  end)
+
+  it("does not set silent=true on mode c mappings (silent suppresses the cmdline redraw after setcmdline())", function()
+    -- 実機検証: vim.keymap.set("c", lhs, fn, { silent = true }) で張ったマッピングの
+    -- callback から vim.fn.setcmdline() を呼ぶと、getcmdline() の内部状態は正しく更新
+    -- されるのに画面が再描画されない(Neovim の挙動)。"i"/"t" では無害だが "c" では
+    -- 致命的なので、"c" だけ silent を落とす。
+    local buf = api.nvim_create_buf(false, true)
+    keymap.attach(buf, config.merge(nil), noop_handlers(), "c")
+    local a = find_global_map("a")
+    assert.is_not_nil(a)
+    assert.are.equal(0, a.silent)
+    keymap.detach(buf, "c")
+  end)
+
+  it("still sets silent=true on mode i mappings (no redraw side effect there)", function()
+    local buf = api.nvim_create_buf(false, true)
+    keymap.attach(buf, config.merge(nil), noop_handlers())
+    local a = find_map(buf, "a")
+    assert.is_not_nil(a)
+    assert.are.equal(1, a.silent)
+    keymap.detach(buf)
+  end)
+
+  it("attach_converting(mode=c) saves and detach_converting restores a pre-existing global cmap", function()
+    local buf = api.nvim_create_buf(false, true)
+    local other_plugin_calls = {}
+    vim.keymap.set("c", "<C-r>", function()
+      other_plugin_calls.fired = true
+    end)
+
+    keymap.attach_converting(buf, config.merge(nil), {
+      next_segment = function() end,
+      prev_segment = function() end,
+      next_candidate = function() end,
+      prev_candidate = function() end,
+      expand = function() end,
+      shrink = function() end,
+      register_word = function()
+        other_plugin_calls.vime_fired = true
+      end,
+    }, "c")
+
+    local overridden = find_global_map("<C-R>") or find_global_map("<C-r>")
+    assert.is_not_nil(overridden)
+    overridden.callback()
+    assert.is_true(other_plugin_calls.vime_fired)
+    assert.is_nil(other_plugin_calls.fired)
+
+    keymap.detach_converting(buf, "c")
+
+    local restored = find_global_map("<C-R>") or find_global_map("<C-r>")
+    assert.is_not_nil(restored)
+    restored.callback()
+    assert.is_true(other_plugin_calls.fired)
+
+    pcall(vim.keymap.del, "c", "<C-r>")
+  end)
+
+  it("keeps mode i and mode c mappings for the same buffer independent", function()
+    local buf = api.nvim_create_buf(false, true)
+    keymap.attach(buf, config.merge(nil), noop_handlers(), "i")
+    keymap.attach(buf, config.merge(nil), noop_handlers(), "c")
+
+    keymap.detach(buf, "c")
+    assert.is_not_nil(find_map(buf, "a")) -- "i" は残る
+    assert.is_nil(find_global_map("a")) -- "c" は消える
+
+    keymap.detach(buf, "i")
+  end)
+end)

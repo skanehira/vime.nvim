@@ -34,6 +34,8 @@ kyouhaiitenkidane → きょうはいいてんきだね → 今日はいい天�
 - 英小文字確定（F10。入力したローマ字をそのまま確定。例: ふぉお → foo）
 - ユーザー辞書（SKK 辞書 JISYO JSON を CLI で anthy 私的辞書へ取り込み。送りなし=名詞のみ。§8.2）
 - 設定インターフェース（libanthy パス・キーマップ・ハイライト・ローマ字テーブル）
+- コマンドライン（`:`/`/`/`?`）での日本語入力（未確定はインライン + cmdline 直上の preedit float に装飾付きで併記。§3.3・§6）
+- terminal バッファ（terminal-job モード）での日本語入力（未確定はカーソル位置の inline virtual text 表示、確定のみ PTY へ送出。§3.3・§6）
 
 ### MVP に含まない（将来）
 
@@ -50,16 +52,20 @@ kyouhaiitenkidane → きょうはいいてんきだね → 今日はいい天�
 
 ```
 lua/vime/
-├── init.lua      エントリ兼コントローラ。setup・キーマップ/autocmd 登録・モード管理・バッファ反映
+├── init.lua      エントリ兼コントローラ。setup・キーマップ/autocmd 登録・モード管理・backend 切替
 ├── config.lua    デフォルト設定のマージ＋ libanthy パスの自動探索
 ├── romaji.lua    ローマ字→かな（純粋関数・FFI 非依存）
 ├── anthy.lua     libanthy FFI ラッパ（副作用の境界。FFI と学習の永続化はここだけ）
 ├── session.lua   変換セッションの状態機械（COMPOSING/CONVERTING、文節・候補・注目 index）
 ├── mode.lua      外向きモード名(direct/hiragana/ascii)の推論（純粋関数）
-├── ui.lua        extmark 描画（未確定下線/文節反転）＋候補 popup・モード通知 popup（floating window）
+├── ui.lua        extmark 描画（未確定下線/文節反転）＋候補 popup・モード通知 popup・preedit float（floating window）
 ├── skk.lua       SKK 辞書（JISYO JSON）の解析＋取り込み（register 注入。anthy 非依存。CLI から使用）
 ├── import.lua    辞書取り込み CLI（nvim -l。skk.load + anthy.register_word を別プロセスで実行）
-├── keymap.lua    挿入モードのキー → init のハンドラへディスパッチ
+├── keymap.lua    キー(モード可変: i/t/c) → init のハンドラへディスパッチ
+├── backend/      書込先の抽象化(§3.3)。session の状態をどこへどう反映するかを差し替える
+│   ├── buffer.lua    通常バッファ + 挿入モード("i")。バッファへ直接書く既定の書込先
+│   ├── terminal.lua  terminal バッファ + terminal-job モード("t")。inline virtual text 表示 + chansend
+│   └── cmdline.lua   コマンドライン + cmdline モード("c")。setcmdline によるインライン表示
 └── integrations/ 外部プラグイン連携（opt-in。本体は依存しない）
     └── nvim_cmp.lua  vime モード ON 中は nvim-cmp の補完を抑止する（pcall で optional）
 ```
@@ -69,7 +75,9 @@ lua/vime/
 ```
 keymap ──► (init の handlers) ──► session ──► anthy (DIP インターフェース)
                                         └──► romaji (純粋関数)
-   ui ◄── init (session の状態を読んで描画/モード通知 popup を出す)
+   init ──► backend/{buffer,cmdline,terminal} (session の状態をどこへどう反映するか。§3.3)
+   backend ──► ui (preedit の描画先。buffer は extmark、terminal は inline virt_text、cmdline は preedit float 併記)
+   ui ◄── init (候補 popup・モード通知 popup を出す。位置はどちらも backend:popup_pos() 経由)
    mode ◄── init (session+enabled を集約して外向きモード名を導出)
    User VimeModeChanged ◄── init (モード名が変わったときに発火・data に mode テーブル)
    User VimePreeditChanged ◄── init (未確定が変わったときに発火・data={state,preedit,available})
@@ -83,7 +91,7 @@ init ──► integrations/* (opt-in。is_enabled を依存注入で渡し、�
 - `romaji` は純粋関数なので Vim API も FFI も触らない。単体テストは入出力比較で完結する。
 - `anthy` だけが FFI と学習・私的辞書の永続化という副作用を持つ。ここに副作用を閉じ込める。
 - `skk` は SKK 辞書（JISYO JSON）の解析と取り込みを担い、`anthy` へは直接依存せず `register(yomi, word)` コールバック注入で動く（DIP・純粋部分はテスト容易）。辞書取り込みはエディタ内ではなく CLI（`import.lua`）から `skk.load` に `anthy.register_word` を注入して実行する（別プロセス＝エディタを止めない）。
-- `init` がコントローラ。バッファ・カーソル位置・未確定領域（`start_col`/`len`）・popup 状態を保持し、`session` の状態変化を `ui` 描画へ流す唯一の場所。`init` は辞書取り込みに関与しない。
+- `init` がコントローラ。`session` の状態変化を **backend**（現在アタッチ中の書込先。buffer/cmdline/terminal のいずれか 1 つ）へ流す唯一の場所。書込先固有の状態（バッファ番号・未確定領域の byte 範囲・keymap のモード等）は `st.backend` オブジェクトが保持し、`init` はそれを問い合わせる（§3.3）。`init` は辞書取り込みに関与しない。
 - `integrations/*` は **opt-in** な外部プラグイン連携層。`pcall(require, "<plugin>")` で optional 依存にし、未インストールでも本体は壊れない。本体（`session`/`anthy`/`ui` 等）は integrations を一切 require しない（**依存方向は init → integrations → 外部プラグインの片方向**）。`is_enabled` のような本体の公開 API は関数参照を渡す形で注入し、循環 require を避ける。
 - **自前自動補完**（`completion.enabled`、既定 ON）は composing 中に `session:completion_candidates()` の候補を自前 popup（`ui.show_popup`、変換フローと共用）で自動表示する。設計判断:
   - **補完は外部補完エンジン（nvim-cmp 等）に委譲しない**。vime は未確定を実テキストとして byte 単位（`start_col`/`len`）で管理しており、外部エンジンは候補の選択・確定・クローズでバッファを非同期に書き替える。「バッファの書き手が 2 人」になると二重挿入・巻き戻し・断片混入が原理的に避けられない（nvim-cmp source 統合を実装・検証して確認済み）。自前 popup なら全操作が同期・単独書き手で、plenary のヘッドレステストで end-to-end 検証できる。
@@ -148,8 +156,15 @@ s:commit_completion(item)   -- 補完候補 item を Anthy に学習 commit し 
 s:select(idx) / s:next_candidate()
 s:next_segment() / s:prev_segment()
 s:expand() / s:shrink()     -- 注目文節を伸長/短縮（anthy.resize）
-s:commit()                  -- converting なら現 kana を確定し次の kana セグメントへ converting を移す。
-                            -- 全 kana セグメント確定後はプリエディット全体を返して composing(空)へ
+s:commit()                  -- converting なら残り全 kana セグメントを既定候補で一括確定(一括 commit)し、
+                            -- プリエディット全体を返して composing(空)へ。InsertLeave/disable 等の
+                            -- 「即座に全部確定したい」経路で使う
+s:commit_step()             -- converting なら現 kana だけを確定し、次の kana セグメントがあれば
+                            -- converting を継続(nil を返す)。無ければプリエディット全体を返して
+                            -- composing(空)へ。Enter を押すたび 1 kana セグメントずつ進める
+                            -- (on_commit が使う。複数 kana セグメントを含むプリエディットは
+                            -- Enter を複数回押して順に確定していく)
+s:commit_with_replacement(word) -- 注目文節を辞書登録した word で置き換えて全文節を確定(C-r 用)
 s:commit_katakana()         -- 現在の読みをカタカナ化して確定
 s:commit_alphabet()         -- 入力したローマ字(英小文字)をそのまま確定
 s:cancel()                  -- converting→変換前のかなへ戻す、composing→未確定破棄
@@ -163,13 +178,14 @@ ui.setup()                                          -- ハイライト群を定�
 ui.namespace()                                      -- extmark 用 namespace
 ui.highlight_preedit(buf, row, col, byte_len)       -- 未確定(kana/latin)に下線。byte_len で範囲指定
 ui.highlight_segments(buf, row, col, list, current) -- 注目文節を反転、他を下線(注目 kana 内の文節描画)
-ui.show_popup(items, selected) / ui.close_popup()   -- 候補一覧(選択中を PmenuSel で強調・高 zindex で前面)
-ui.show_mode_notify(label, duration_ms)             -- カーソル下にモードラベルを duration_ms 表示
+ui.show_popup(items, selected, pos?) / ui.close_popup()   -- 候補一覧(選択中を PmenuSel で強調・高 zindex で前面)
+ui.show_mode_notify(label, duration_ms, pos?)       -- カーソル下(既定)にモードラベルを duration_ms 表示
 ui.close_mode_notify()                              -- モード通知 popup を明示的に閉じる
+ui.show_preedit_float(view, pos) / ui.close_preedit_float() -- 共有 preedit float(§3.3)。view は preedit_segments() の戻り値
 ui.clear(buf)                                       -- extmark 全消去 + 候補 popup を閉じる
 ```
 
-ハイライトは `VimeUnconfirmed`（既定 underline）/`VimeSegment`（既定 reverse）/`VimeModeNotify`（既定: 緑背景・白文字・bold、`default=true` なので `:highlight` で上書き可）。`ui.setup(opts)` の `opts.mode_notify_highlight` に `nvim_set_hl` 互換テーブルを渡すと明示上書き(default フラグなし)になり、`config.mode_notify.highlight` 経由で `init.setup()` から流れる。latin/kana を別色にしないので、ui の関数は既存と同じシグネチャを保つ。`init.render` が `session:preedit_segments()` を解釈して各セグメントの byte 範囲ごとに ui を呼ぶ。モード通知 popup は `init` のモード変化検出から呼ばれ、`vim.defer_fn` で自動消滅し、連続切替時は先に開いている popup を閉じてから新しく開く（古い defer_fn が遅延発火しても win は既に無効なので no-op）。`zindex` は `max(200, host_z + 40)` で動的に決まり、ホストの floating window（AI 入力欄等）の中で入力していても隠れない。候補 popup は `max(250, host_z + 50)` なので、共存時は候補が前面に来る。
+ハイライトは `VimeUnconfirmed`（既定 underline）/`VimeSegment`（既定 reverse）/`VimeModeNotify`（既定: 緑背景・白文字・bold、`default=true` なので `:highlight` で上書き可）。`ui.setup(opts)` の `opts.mode_notify_highlight` に `nvim_set_hl` 互換テーブルを渡すと明示上書き(default フラグなし)になり、`config.mode_notify.highlight` 経由で `init.setup()` から流れる。latin/kana を別色にしないので、ui の関数は既存と同じシグネチャを保つ。`show_popup`/`show_mode_notify` の第 3 引数 `pos`（省略可）は `nvim_open_win` 互換の配置テーブル（`{relative, row, col, anchor?}`）で、省略時はカーソル直下。候補 popup（`show_candidate_window`）もモード通知 popup（`show_mode_notify`）も `init` から `st.backend:popup_pos()`（§3.3）の戻り値を渡して呼ばれるので、backend ごとにふさわしい位置に出る（buffer/terminal はカーソル直下、cmdline は cmdline 直上。cmdline セッション中はカーソルが cmdline 上に無く、カーソル相対だと無関係な場所に出るため）。`ui.show_preedit_float(view, pos)` は `session:preedit_segments()` の `view` をそのまま渡すと、下線・文節反転込みの 1 行 floating window に描画する内部ヘルパを持つ（`highlight_preedit`/`highlight_segments` をその float の scratch buffer に対して適用するので byte 計算の不変条件は 1 箇所のまま）。使うのは `cmdline` backend のみ。`ui.show_inline_preedit(buf, row, col, view)` は同じ `view` を inline virtual text の extmark 1 個（`virt_text_pos="inline"`、文節ごとに `VimeSegment`/`VimeUnconfirmed` の chunk）として描画する。実文字を書き込めない terminal buffer 用で、`terminal` backend が使う。モード通知 popup は `init` のモード変化検出から呼ばれ、`vim.defer_fn` で自動消滅し、連続切替時は先に開いている popup を閉じてから新しく開く（古い defer_fn が遅延発火しても win は既に無効なので no-op）。`zindex` は `max(200, host_z + 40)` で動的に決まり、ホストの floating window（AI 入力欄等）の中で入力していても隠れない。候補 popup は `max(250, host_z + 50)` なので、共存時は候補が前面に来る。
 
 #### `mode.lua`（純粋関数）
 
@@ -203,18 +219,70 @@ skk.load(path, register)        -- ファイルを読み各エントリを regis
 
 #### `keymap.lua`（キーディスパッチ）
 
-日本語入力 ON の間だけ、対象バッファにローカルの挿入モードマッピングを張る（OFF で外す）。
+```lua
+keymap.attach(buf, config, handlers, mode?)             -- mode 省略時は "i"。"c" は自動的にグローバルスコープになる
+keymap.detach(buf, mode?)
+keymap.attach_converting(buf, config, handlers, mode?) / keymap.detach_converting(buf, mode?)
+keymap.attach_completion(buf, config, handlers, mode?) / keymap.detach_completion(buf, mode?)
+```
+
+日本語入力 ON の間だけキーマッピングを張る（OFF で外す）。`mode` は `"i"`（挿入モード。既定）/`"t"`（terminal-job モード）/`"c"`（コマンドライン）。`"i"`/`"t"` はバッファローカル（`vim.keymap.set(mode, lhs, fn, {buffer=buf,...})`）、`"c"` はグローバル（`:cnoremap` はバッファローカルにできないため）。`GLOBAL_MODES = {c = true}` で判定し、登録簿のキーも `"mode:buf"`（`"c"` は `"c:global"`）で分ける。`attach_converting`/`attach_completion` は上書き前の既存マッピング（他プラグイン由来含む）を `maparg`/`mapset` で保存・復元する（グローバルスコープでも同じ機構を使う）。
+
+### 3.3 backend（書込先の抽象化）
+
+`init` は「session の状態が変わった」ことを知っているだけで、それを **どこへどう反映するか** は `st.backend` オブジェクトに委譲する。同時にアタッチされる backend は常に 1 つ。`buffer`/`terminal` は InsertEnter/TermEnter で追従する準永続的な backend、`cmdline` は CmdlineEnter/CmdlineLeave の間だけ既存の backend に割り込む一時的な backend という違いがある（後述）。
+
+各 backend が実装するインターフェース（`vime.BufferBackend`/`vime.TerminalBackend`/`vime.CmdlineBackend`。`lua/vime/backend/*.lua` の `---@class` 参照）:
+
+```lua
+backend.kind                  -- "buffer" | "terminal" | "cmdline"
+backend.keymap_mode           -- "i" | "t" | "c"（keymap.attach/detach に渡すモード）
+backend.supports(feature)     -- "completion" | "register_word" の対応可否(下記参照)
+backend:sync_anchor()         -- 未確定が無い(idle)ときに実カーソル/実 cmdpos へ再アンカー
+backend:set_region_text(text) -- 未確定領域を text で置換する(completion 対応 backend のみ必須。
+                               -- select_completion() が候補のインライン置換に使う。terminal は
+                               -- completion 非対応なので未実装)
+backend:render(view)          -- preedit_segments() の view を描画先へ反映(下線/文節反転込み)
+backend:clear()               -- 描画(extmark/float)と候補 popup を消す
+backend:finalize(text)        -- 未確定領域を確定テキストで置き換える(buffer/cmdline)か、
+                               -- 確定テキストを送出する(terminal。置換ではなく chansend)
+backend:insert_literal(text)  -- 未確定が無いときの通常の Space/CR を書込先へ素通し
+backend:passthrough(key)      -- BS/C-w/C-u/Esc 等を書込先の既定動作へそのまま流す
+backend:popup_pos()           -- 候補 popup・preedit float の配置(nvim_open_win 互換)
+backend:place_cursor()        -- カーソル/カーソル相当を未確定末尾へ(no-op のことがある)
+```
+
+`backend.supports(feature)` の feature は現状 `"completion"`/`"register_word"` の 2 つだけが `init.lua` から実際に問い合わせられる（`refresh_completion`/`M.completion_active`/`M.on_register_word`）。各 backend の `FEATURES` テーブルは `"dot_repeat"` も宣言する（buffer=`true`、terminal/cmdline=`false`）が、これは実行時のどこからも参照されないメタデータで、dot repeat が cmdline/terminal で効かないこと自体は各 backend の `finalize`/`insert_literal` が feedkeys 経路を持たないという実装上の構造で担保されている（テストは宣言値のみ検証する）。
+
+| 操作 | `buffer`（既定） | `terminal` | `cmdline` |
+| --- | --- | --- | --- |
+| 書込先 | 実バッファ(`nvim_buf_set_text`) | inline virtual text（実バッファへは書かない） | `getcmdline`/`setcmdline`（プレーン文字列） |
+| 未確定の表示 | extmark 下線/文節反転 | カーソル位置の inline virt_text extmark（`show_inline_preedit`。下線/文節反転を chunk のハイライトで表現） | インラインはプレーン。未確定がある間は常に cmdline 直上の preedit float に下線/文節反転付きで併記 |
+| 確定経路 | 挿入モード中は feedkeys（dot repeat 対応）、それ以外は API 置換 | `chansend(channel, text)`（置換ではなく PTY への送出） | `setcmdline` による API 置換のみ |
+| `supports("completion"/"register_word")` | すべて `true` | すべて `false` | すべて `false` |
+| keymap スコープ | バッファローカル（`"i"`） | バッファローカル（`"t"`） | グローバル（`"c"`） |
+| アタッチ契機 | `InsertEnter`（`terminal`/`prompt` buftype は除外） | `TermEnter` | `CmdlineEnter`（`getcmdtype()` が `:`/`/`/`?` のときのみ） |
+| 通常の離脱 | `InsertLeave` で **確定**（学習のみ。テキストは既にバッファにある） | `TermLeave`（`<C-\><C-n>` 等）で **破棄**（`on_insert_leave` と非対称。leave しただけで PTY へ文字が飛ぶのを避けるため） | `CmdlineLeave` で常に detach。`v:event.abort`（Esc/C-c）なら破棄、正常終了(`<CR>` 実行等)なら確定テキストは既に `setcmdline` 済みなので学習のみ |
+| `<C-j>`(toggle)での OFF | 未確定/変換中を **確定**（`disable()` が `finalize(s:commit())`） | 未確定/変換中を **確定して PTY へ送出**（`disable()` は `TermLeave` を経由しない。上記「通常の離脱」の破棄とは逆の挙動になる） | cmdline backend の `finalize` で確定（実行はしない） |
+
+terminal は離脱経路が 2 つあり挙動が逆になる点に注意: **`TermLeave`（terminal-job モードを抜けるだけ）は破棄**、**`<C-j>` で IME 自体を OFF にすると確定してシェルへ送出**される。前者は「一時的にノーマルモードへ戻る」操作、後者は「IME を使うのをやめる」操作という意図の違いに対応している。
+
+`completion`（自前自動補完 popup）と `register_word`（`C-r` の辞書登録、`vim.ui.input` を使う）は `terminal`/`cmdline` では **常に無効**（`refresh_completion`/`M.completion_active`/`M.on_register_word` が `backend.supports(...)` で早期リターンする）。`vim.ui.input` を cmdline/terminal の中で開くとネストして UX が壊れるため、構造的に届かないようにしている。dot repeat（`.`）も同様に `buffer` backend の挿入モード中 feedkeys 経路にしか無く、terminal-job モード・cmdline に「挿入モード」という概念自体が無いので対応しない。
+
+**cmdline backend の割り込みモデル**: `CmdlineEnter` で現在の `st.backend`（`buffer` か `terminal`）を `st.saved_backend` に退避し、`cmdline` backend を `st.backend` に差し替えて `"c"` グローバルマッピングを張る。`"c"` はグローバルなので既存 backend の `"i"`/`"t"` マッピングは detach しない（モードが異なり衝突しないため）。`CmdlineLeave` で `"c"` マッピングを detach し、`st.saved_backend` を `st.backend` へ復元する（`st.saved_backend` が無い＝退避前から backend が無かった場合のみ `attach_to_current_buf()` へフォールバック）。`enable()`/`toggle()` は `attach_to_current_context()` で現在のコンテキスト（`getcmdtype()` → `buftype` の順）を見て 3 backend のどれを張るか決めるので、cmdline セッション中に toggle しても正しく `cmdline` backend が選ばれる。cmdline セッション中に `<C-j>` で OFF にした場合も `disable()` が `st.saved_backend` のキーマップを合わせて detach する（割り込まれた側のマッピングが残留しないように）。
+
+`terminal`/`cmdline` は `config.terminal.enabled`/`config.cmdline.enabled`（既定 `true`）で無効化できる（§8）。無効時は該当 autocmd が該当 backend を張らず、typed した文字は vime に横取りされずそのまま書込先へ届く。
 
 ## 4. 処理フロー
 
-代表シナリオ「`kyou` と打って Space で変換、候補を選び Enter で確定」を追う。
+代表シナリオ「通常バッファの挿入モードで `kyou` と打って Space で変換、候補を選び Enter で確定」を追う（`buffer` backend の場合。`terminal`/`cmdline` backend は書込先が異なるだけで手順の骨格は同じ。§3.3）。
 
 1. **キー入力**: 挿入モードで `k` を押すと、`keymap.lua` が張ったマッピングが `init.on_input("k")` を呼ぶ。
 2. **セッション更新**: `init.on_input` は `session:input("k")` を呼ぶ。session はローマ字バッファに溜める。
-3. **描画**: `init` の `render()` が `session:preedit()`（=`romaji.to_kana("kyou")` → `きょう`）を未確定領域として `set_region_text` でバッファに書き、`ui.highlight_preedit` で下線を引く。未確定領域は `start_col`/`len`（byte）で管理する。
-4. **変換開始**: `Space` で `init.on_convert` → `session:start_conversion()`。session は `anthy:convert("きょう")` を呼び、文節配列を得て `converting` へ。`render()` が `ui.highlight_segments` で注目文節を反転表示。
-5. **候補選択**: `Space` を押すたび `session:next_candidate()` で次候補へ送る。2 回目以降の `Space`（または `C-n`/`C-p`）で `st.popup_open=true` となり、`render` が `open_popup_window` で注目文節の候補一覧を表示する（`C-f`/`C-b`・`C-o`/`C-i` の文節移動/伸縮でも、開いていれば追従して出し直す）。選択中の候補（`session:current_candidate_index()`）は `PmenuSel` で強調表示。変換中に文字を打つと `session:input` が現在の変換を確定して新しい読みを開始する（ラベル選択は廃止）。
-6. **確定**: `Enter` で `init.on_commit` → `session:commit()`。session は全文節を `anthy:commit(choices)` に流して**学習**し、確定文字列を返す。`init` の `finalize()` が未確定領域を確定テキストに置換し、領域を畳む（`len=0`）。
+3. **描画**: `init` の `render()` が `st.backend:clear()` で前回の描画を消し、`st.backend:render(session:preedit_segments())` を呼ぶ。`buffer` backend はこれを受けて未確定文字列（`session:preedit()` = `romaji.to_kana("kyou")` → `きょう`）を `set_region_text` でバッファに書き、`ui.highlight_preedit` で下線を引く。未確定領域は backend が持つ `start_col`/`len`（byte）で管理する。
+4. **変換開始**: `Space` で `init.on_convert` → `session:start_conversion()`。session は `anthy:convert("きょう")` を呼び、文節配列を得て `converting` へ。`render()` 経由で `backend:render()` が `ui.highlight_segments` で注目文節を反転表示。
+5. **候補選択**: `Space` を押すたび `session:next_candidate()` で次候補へ送る。2 回目以降の `Space`（または `C-n`/`C-p`）で `st.popup_open=true` となり、`render` が `open_popup_window` で注目文節の候補一覧を `st.backend:popup_pos()` の位置に表示する（`C-f`/`C-b`・`C-o`/`C-i` の文節移動/伸縮でも、開いていれば追従して出し直す）。選択中の候補（`session:current_candidate_index()`）は `PmenuSel` で強調表示。変換中に文字を打つと `session:input` が現在の変換を確定して新しい読みを開始する（ラベル選択は廃止）。
+6. **確定**: `Enter` で `init.on_commit` → `session:commit_step()`。session は現在の kana セグメントを `anthy:commit(choices)` に流して**学習**し、確定文字列を返す（複数 kana セグメントが残っていれば `nil` を返し次のセグメントへ converting を継続。全セグメント確定で `composing(空)` へ）。`init` の `finalize()` が `st.backend:finalize(text)` を呼んで未確定領域を確定テキストに置換し、領域を畳む（`len=0`）。
 
 `init` のハンドラは `handlers()` テーブルに集約され、`keymap.attach` 経由でキーへ束ねられる。新しい操作を足すときも、このテーブルにハンドラを追加して `keymap.lua` に渡す。
 
@@ -291,13 +359,15 @@ feasibility 検証（旧 PoC）で確定し、回帰しやすい要点。コー�
 - **公開 API は 1-based、anthy 内部は 0-based**。`anthy.lua` の `Session:resize`/`Session:commit` が境界で `-1` 補正する。session/ui からは 1-based のまま扱う。
 - **学習は「全文節 commit」でしか効かない**。`session:commit` は必ず `choices` 配列の全要素を `anthy_commit_segment` に流す。部分 commit は学習されないので導入しない。確定 UX は「文単位」に寄せている。
 - **挿入モードを抜けるときに未確定を確定する**（`init.lua` の `InsertLeave` autocmd）。これがないと、ノーマルモードに残った未確定 extmark に対する `x`/`u` が壊れる。
-- **IME ON 中の別バッファへの追従は `InsertEnter` で行う**。`st.buf` と buffer-local キーマップは「いま編集中の唯一のバッファ」を指す。ユーザーが IME ON のまま別バッファへ移動して `i`/`a` 等で挿入モードに入った瞬間、`init.lua` の `InsertEnter` autocmd が `attach_to_current_buf()` を呼び、旧バッファの keymap/extmark を掃除して新バッファへ attach し直す。`BufEnter` ではなく `InsertEnter` を選ぶのはパフォーマンス理由（telescope のプレビュー等 BufEnter は大量発火し、毎回 ~104 個の `vim.keymap.set/del` が走るとプレビューがもたつくため）。`terminal`/`prompt` buftype は除外（vime が `<C-r>` 等を握ると UX が壊れる）。
+- **IME ON 中の書込先の切替は `InsertEnter`/`TermEnter`/`CmdlineEnter` で行う**（`BufEnter` は使わない）。`st.backend` は「いま編集中の唯一の書込先」を指す。ユーザーが IME ON のまま別バッファへ移動して `i`/`a` 等で挿入モードに入った瞬間、`init.lua` の `InsertEnter` autocmd が `attach_to_current_buf()` を呼び、旧 backend の keymap/描画を掃除して新バッファへ attach し直す（terminal-job モードは `TermEnter`/`attach_to_terminal_buf()`、cmdline セッションは `CmdlineEnter`/`attach_cmdline_backend()` が同役）。`BufEnter` を使わないのはパフォーマンス理由（telescope のプレビュー等 BufEnter は大量発火し、毎回 ~104 個の `vim.keymap.set/del` が走るとプレビューがもたつくため）。`InsertEnter` は `terminal`/`prompt` buftype を除外する（`terminal` は `TermEnter` 側で扱う。`prompt` は vime が `<C-r>` 等を握ると UX が壊れるため対象外のまま）。
+- **terminal-job モードを抜けるときは未確定を「破棄」する（`InsertLeave` とは非対称）**。`init.lua` の `TermLeave` autocmd（`M.on_term_leave`）は `session:commit()` を呼ばない。leave しただけで確定テキストが `chansend` で PTY(シェル) へ送られてしまうのを避けるため。挿入モードの `InsertLeave` が未確定を**確定**するのとは意図的に非対称。
+- **cmdline/terminal backend は dot repeat（`.`）の対象外**。`buffer` backend の確定経路（挿入モード中の feedkeys + `<C-G>u`）は Vim の「挿入モード」概念に依存しており、cmdline・terminal-job モードには挿入モードが無い。`cmdline`/`terminal` backend の `finalize` はどちらも feedkeys 経路を持たない（`cmdline` は `setcmdline` による API 置換、`terminal` は `chansend` による送出）ため、構造的に dot repeat には載らない。
 - **`anthy.lua` は失敗しても例外を投げない**。`setup` は `false` を返し、`init` 側で `vim.notify` ＋無効化する。「Vim を壊さない」が基本方針。
 - **撥音 `ん` の look-ahead**: `nn` を常に 2 文字消費すると `こんにちは→こんいちは`、`おんな→おんあ` になる。2 つ目の `n` の次が母音/`y` なら `n` を 1 つだけ `ん` にする（実 IME 準拠）。`namba→なmば`（難波は `nanba`）、`honya→ほにゃ`（本屋は `hon'ya`）も実 IME と同じ正しい挙動。
 - **促音 `っ`**: 同子音の連続（`kk`/`tt`…）と `tch` で生成する。
 - **外来音・拗音テーブルは `expand()` で機械生成する**。`fa`/`va`/`tsa`/`tha`/`kwa` などを手で 1 つずつ足し続けない（穴が残る）。`f`/`v`/`ts` は `u` スロットがベース音（ふ/ゔ/つ）なので skip する。
 - **学習は副作用としてディスクに永続化される**。原 anthy(9100h) は `$HOME/.anthy`、anthy-unicode は `$XDG_CONFIG_HOME/anthy`（未設定なら `~/.config/anthy`）。テストはこれを一時ディレクトリへ隔離する（[§9](#9-テスト構成)）。
-- **変換対象範囲の管理**: 挿入モードの「どこからどこまでが未確定か」は `init` が `row`/`start_col`/`len`（byte）で保持する。確定後やユーザーの直接編集でズレたら `sync_anchor()` が実カーソル位置へ再アンカーする。
+- **変換対象範囲の管理**: 「どこからどこまでが未確定か」は各 backend が `row`/`start_col`/`len`（`buffer`）または `anchor`/`len`（`cmdline`。§3.3）のように byte 基準で保持する。確定後やユーザーの直接編集でズレたら `backend:sync_anchor()` が実カーソル位置/実 cmdpos へ再アンカーする。
 - **ASCII モードと anthy の分離**: ASCII モード中の入力は **anthy に渡さない**。Space 変換時も latin セグメントは **anthy 入力に含めない**。kana セグメントを 1 個ずつ `anthy.convert` し、latin セグメントは間に挟まれた byte 列としてプリエディットに残す（連結すると latin の位置を復元できなくなるため）。
 - **ASCII モード OFF はトグルキーのみ**。COMPOSING で ascii_toggle を 2 連打すると「ASCII ON → ASCII OFF」になり、latin セグメントは空のまま閉じられる。ASCII モード中に latin を BS で全削除してもモードは継続する（タイプミスを直して入力再開できるように）。次の入力で新規 latin セグメントが自動で開かれる。ASCII モード中に ascii_toggle 文字をリテラル入力する手段はない（必要なら設定で別文字に変えるか、一旦 OFF にしてから打つ）。
 - **学習は kana セグメント単位**。複数の kana セグメントを含むプリエディットを確定する場合、各 kana セグメントの「全文節 commit」が **順次** 走る。各 commit ごとに anthy が学習する（kana セグメント間で文節を跨いだ変換はしない）。
@@ -350,6 +420,19 @@ require("vime").setup({
     duration = 1000,        -- ms
     labels = { direct = "直", hiragana = "あ", ascii = "A" },
     highlight = nil,        -- nil なら緑背景デフォルト。{ bg=..., fg=..., bold=... } で上書き
+  },
+  completion = {
+    enabled = true,  -- 読み入力中(composing)の自動補完 popup
+  },
+  integrations = {
+    nvim_cmp = false,  -- true で vime モード ON 中は nvim-cmp の補完を抑止する
+  },
+  cmdline = {
+    enabled = true,  -- ":"/"/"/"?" での日本語入力(§3.3)。cmp-cmdline 等と競合する場合は false
+  },
+  terminal = {
+    enabled = true,  -- terminal バッファ(terminal-job モード)での日本語入力(§3.3)。
+                      -- toggleterm.nvim 等が独自に terminal-job モードのキーマップを握る場合は false
   },
 })
 ```
@@ -440,15 +523,18 @@ nvim --headless --noplugin -u tests/minimal_init.lua \
 nvim --headless -l tests/smoke.lua                   # 実 libanthy を使う E2E スモーク
 ```
 
-| 層        | テスト対象                                           | 手法                                       |
-| --------- | ---------------------------------------------------- | ------------------------------------------ |
-| `romaji`  | ローマ字→かな（拗音/促音/撥音/外来音/ん/大文字）     | 純粋関数。入出力比較                       |
-| `session` | 状態遷移・文節/候補/注目 index 管理                  | 実 anthy を注入し、状態と出力を検証        |
-| `mode`    | enabled/state/ascii/latin → モード名の推論           | 純粋関数。入出力比較                       |
-| `anthy`   | FFI ラッパの薄い結線                                 | 実 libanthy で疎通（環境依存のため最小）   |
-| `ui`      | extmark の byte 範囲計算・モード通知 popup           | バッファ／win に対して状態を検証           |
-| `skk`     | JISYO 解析（候補整形/エントリ展開/decode）・取り込み | 純粋部は入出力比較、load は temp JSON+注入 |
-| `init`    | end-to-end（キー入力→確定までの結線・モード通知）    | 実 anthy で通しシナリオ                    |
+| 層         | テスト対象                                           | 手法                                                |
+| ---------- | ----------------------------------------------------- | --------------------------------------------------- |
+| `romaji`   | ローマ字→かな（拗音/促音/撥音/外来音/ん/大文字）     | 純粋関数。入出力比較                                |
+| `session`  | 状態遷移・文節/候補/注目 index 管理                  | 実 anthy を注入し、状態と出力を検証                 |
+| `mode`     | enabled/state/ascii/latin → モード名の推論           | 純粋関数。入出力比較                                |
+| `anthy`    | FFI ラッパの薄い結線                                 | 実 libanthy で疎通（環境依存のため最小）            |
+| `ui`       | extmark の byte 範囲計算・候補 popup・preedit float  | バッファ／win に対して状態を検証                    |
+| `keymap`   | attach/detach のモード別挙動（`i`/`t`/`c`）・保存復元 | `nvim_buf_get_keymap`/`nvim_get_keymap`(`"c"`) で検証 |
+| `skk`      | JISYO 解析（候補整形/エントリ展開/decode）・取り込み | 純粋部は入出力比較、load は temp JSON+注入          |
+| `init`     | end-to-end（キー入力→確定までの結線・モード通知）    | 実 anthy で通しシナリオ                             |
+| `terminal` | terminal backend の送出制御・TermEnter/TermLeave 結線 | 単体は DI した `send` の spy、結線は実 PTY(`jobstart({"cat"},{term=true})`) |
+| `cmdline`  | cmdline backend の領域管理・CmdlineEnter/Leave 結線  | 実際に `:`/`/`/`?` を開いて `getcmdline`/`setcmdline` を検証 |
 
 ### テストの決定性
 
@@ -456,6 +542,8 @@ nvim --headless -l tests/smoke.lua                   # 実 libanthy を使う E2
 - **lib は HOME を temp 化する前に解決して `$VIME_ANTHY_LIB` に固定する**。temp 化後だと `~` 展開先が変わり `~/.local/lib` 等を見失う。
 - **辞書バージョン依存の絶対値で検証しない**。anthy-unicode と 9100h は同じ読みでも分割/候補が変わる（例: `きょうはいいてんきだね` は 9100h=今日は… / unicode=今日…）。安定事実・相対変化で検証し、学習する `it` は describe 末尾に置く。
 - `session` テストも実 anthy を注入する（fake は使わない）。
+- **terminal-job モードは headless（UI 未 attach）では実際には遷移しない**（`:startinsert` しても `TermEnter` が発火せず `mode()` は `"n"` のまま。`nvim_ui_attach` が要る）。`terminal_spec.lua` はこの制約を前提に、backend の選択は `buftype == "terminal"` のみで判定する設計にし（実モード判定に依存しない）、`TermEnter` の結線検証は `nvim_exec_autocmds("TermEnter", {buffer=...})` で直接発火させて行う。`TermLeave` は同様に直接発火させず、`vime.on_term_leave()`（ハンドラ本体）を直接呼んで検証する（`TermLeave` autocmd 自体の登録は §9 のとおり `TermEnter` と対で存在するが、この結線自体は headless では検証していない）。
+- **`nvim_feedkeys(keys, "tx", ...)` はタイプアヘッドが尽きた時点で cmdline が開いたままだと暗黙にキャンセルする**（headless の制約）。そのため「cmdline を開いたまま複数ステップの状態を確認する」テストは、同一の `feedkeys` 呼び出し内でプローブキー（例 `<F12>`）に一時マッピングした callback から `getcmdline()`/`mode()` 等を読み取る（`cmdline_spec.lua` の `probe_in_cmdline` ヘルパ）。別々の `feedkeys` 呼び出しに分割すると、1 回目の呼び出しの終わりで cmdline が閉じてしまい後続の呼び出しが意図通りに動かない。
 
 ## 10. 開発フロー
 
@@ -467,6 +555,7 @@ nvim --headless -l tests/smoke.lua                   # 実 libanthy を使う E2
 - **ローマ字テーブル / 拗音・促音・撥音のロジック**: `lua/vime/romaji.lua`。ケースは `tests/vime/romaji_spec.lua` にあるのでそちらを更新する。
 - **新しいキー操作**: `init.lua` の `handlers()` テーブルにハンドラを足し、`keymap.lua` の `attach` でキーへ束ねる。印字可能 ASCII（0x21–0x7e）は 1 文字ずつ `handlers.input(ch)` に流れる。`<`/`|`/`\` だけ `<lt>`/`<Bar>`/`<Bslash>` にエスケープが要るので、印字可能文字のロジックを変えるなら `SPECIAL_LHS` テーブルも併せて更新する。
 - **描画**: `ui.lua`。範囲は必ず byte オフセット（[§6](#6-必ず守る不変条件と罠)）。
+- **新しい書込先（backend）を増やす**: `lua/vime/backend/*.lua`。既存 3 backend（[§3.3](#33-backend書込先の抽象化)）の interface（`sync_anchor`/`set_region_text`/`render`/`clear`/`finalize`/`insert_literal`/`passthrough`/`popup_pos`/`place_cursor`/`supports`。`set_region_text` は completion 対応時のみ必須）を実装し、`init.lua` にアタッチ契機（autocmd）と `attach_to_current_context()` の判定を足す。`keymap.lua` の `mode` 引数（`"i"`/`"t"`/`"c"`）を再利用できる新モードならそのまま渡せる。あわせて `tests/vime/<name>_spec.lua`（新規テスト、TDD で先に書く）・`config.lua` の `<name>.enabled` トグル・`doc/vime.txt`/README.md への使い方の追記も行う（`cmdline`/`terminal` 追加時の一式が実例）。
 
 ## 11. feasibility（確定事項）
 

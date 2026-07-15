@@ -1,6 +1,6 @@
 *vime.txt*	挿入モードのまま日本語入力できるモード式 IME
 
-Author:  skanehira <factx.skanehira@gmail.com>
+Author:  skanehira <kanehira.sho@techlead-it.com>
 License: MIT License (see |vime-license|)
 
 ==============================================================================
@@ -12,17 +12,20 @@ CONTENTS						*vime* *vime-contents*
 	4. 設定 ............................. |vime-configuration|
 	5. ユーザー辞書 ..................... |vime-dictionary|
 	6. 使い方 ........................... |vime-usage|
-	7. キーマッピング ................... |vime-mappings|
-	8. ハイライト ....................... |vime-highlights|
-	9. モード API ....................... |vime-mode-api|
-	10. ライセンス ...................... |vime-license|
+	7. コマンドライン / ターミナル ...... |vime-cmdline-terminal|
+	8. キーマッピング ................... |vime-mappings|
+	9. ハイライト ....................... |vime-highlights|
+	10. モード API ....................... |vime-mode-api|
+	11. ライセンス ...................... |vime-license|
 
 ==============================================================================
 1. 概要							*vime-introduction*
 
 vime.nvim は挿入モードのまま、OS の IME を切り替えずに日本語を入力できる
 Neovim プラグイン（モード式 IME）。pure Lua(LuaJIT) + libanthy(FFI) で完結し、
-外部プロセスを起動しない。変換は 2 段構成: >
+外部プロセスを起動しない。挿入モードだけでなく、コマンドライン（|vime-cmdline|）
+と terminal バッファ（|vime-terminal|）でも使える（|vime-cmdline-terminal|）。
+変換は 2 段構成: >
 
 	kyouhaiitenkidane → きょうはいいてんきだね → 今日はいい天気だね
 	       ①ローマ字→かな(自前)      ②かな→漢字(Anthy)
@@ -107,6 +110,12 @@ setup() に渡せる設定と既定値: >lua
 	  },
 	  integrations = {
 	    nvim_cmp = false,             -- true で vime ON 中は nvim-cmp を抑止
+	  },
+	  cmdline = {
+	    enabled = true,               -- コマンドラインでの日本語入力(|vime-cmdline|)
+	  },
+	  terminal = {
+	    enabled = true,               -- terminal バッファでの日本語入力(|vime-terminal|)
 	  },
 	})
 <
@@ -194,6 +203,17 @@ integrations		外部プラグイン連携の opt-in 設定。本体は連携先�
 			いる場合は、本オプションを true にせず自分の `fn` の中で
 			|vime.is_enabled()| を呼ぶこと（本オプションを true にすると
 			ユーザーの enabled が上書きされる）。
+
+						*vime-config-cmdline*
+cmdline.enabled		コマンドライン（: / / / ?）での日本語入力（|vime-cmdline|）。
+			既定で有効。cmp-cmdline 等の他の cmdline 拡張プラグインと
+			競合する場合は `false` で無効化できる。
+
+						*vime-config-terminal*
+terminal.enabled	terminal バッファでの日本語入力（|vime-terminal|）。
+			既定で有効。terminal-job モードのキーマッピングを独自に
+			握る toggleterm.nvim 等と競合する場合は `false` で
+			無効化できる。
 
 SKK 辞書の取り込みは設定ではなく CLI で行う（|vime-dictionary|）。
 
@@ -344,9 +364,85 @@ ASCII モード中はトグル文字（既定 `;`）自体をリテラル入力�
 必要なら一旦 OFF にしてから打つか、setup() で別文字に変える。
 
 ==============================================================================
-7. キーマッピング					*vime-mappings*
+7. コマンドライン / ターミナル			*vime-cmdline-terminal*
+
+挿入モードだけでなく、コマンドライン（: / / / ?）と terminal バッファ
+（terminal-job モード）でも日本語入力できる。<C-j>（既定。toggle）はこれらの
+モードにもグローバルに割り当てられており、挿入モードで ON にしたまま移動
+すれば引き継がれる。
+
+コマンドライン ~					*vime-cmdline*
+
+: 、 / 、 ? を開いた状態で <C-j> を押すと日本語入力が ON になる。使い方は
+挿入モードと同じ（ローマ字入力 → <Space> 変換 → <CR> 確定）。ただし未確定が
+残っている間の <CR> は「確定するだけ」で、コマンドラインは実行されない
+（実行されるのは未確定が無くなってから改めて <CR> を押したときだけ）。
+これは変換していない読みのままでも同じで、変換の有無に関わらず未確定が
+ある間の <CR> は常に確定のみと考えてよい: >
+
+	:kyouhaii<Space><CR>	1回目の <CR>: 変換の確定のみ(コマンドラインに
+				残ったまま)。
+	<CR>			2回目の <CR>: 未確定が無いので通常どおり
+				コマンドとして実行される。
+<
+未確定はコマンドラインへそのままインライン挿入される（下線等の装飾は付か
+ない。cmdline は extmark を使えないため）。未確定がある間は常に、同じ内容が
+コマンドライン直上に出る floating window にも下線・文節反転（変換中の注目
+文節）付きで併記される。<Esc>/<C-c> を押すと未確定/変換中を破棄して
+コマンドラインごと抜ける。
+
+|vime-config-completion| の自動補完、|vime-dictionary-register| の対話的
+辞書登録、dot repeat（|vime-usage| 参照）はコマンドラインでは無効になる
+（該当キーは Vim 既定のコマンドライン編集へそのまま通る）。cmdline backend
+が対象にするのは : / / / ? の 3 つのみ（|input()| が開く `@` プロンプトや
+式レジスタ `=` は対象外で、これらは vime に横取りされずそのまま使える）。
+
+cmp-cmdline 等の他の cmdline 拡張プラグインと競合する場合は無効化できる
+（|vime-config-cmdline|）: >lua
+
+	require("vime").setup({ cmdline = { enabled = false } })
+<
+ターミナル ~					*vime-terminal*
+
+|:terminal| で開いた terminal バッファの terminal-job モード（|Terminal-mode|）
+でも日本語入力できる。未確定はバッファへは書き込まれず、カーソル位置に
+inline virtual text として表示される（通常バッファと同じ下線・文節反転の
+見た目。terminal バッファの中身は PTY(ジョブ)が握っているため実文字は
+書き込まない）。確定したテキストだけがジョブへ送られる。使用例: >
+
+	:terminal
+	（terminal-job モードに入った状態で）
+	<C-j>			日本語入力 ON
+	kyouhaii<Space><CR>	「きょうはいい」を変換して確定 → ジョブへ送出
+<
+対応していない機能はコマンドラインと同様（自動補完・辞書登録・dot repeat）。
+
+注意: 未確定を残したまま抜けるときの挙動が 2 通りあり、逆になる ~
+
+  - terminal-job モードだけを抜ける（<C-\><C-n> 等、Normal モードへ戻る
+    だけ）: 未確定は**破棄**される（挿入モードを抜けるときに未確定が確定
+    される |vime-usage| とは異なる。leave しただけで確定テキストがジョブへ
+    送られてしまうのを避けるため）。
+  - <C-j> で日本語入力そのものを OFF にする: 未確定は**確定してジョブへ
+    送出**される（IME をやめる操作なので、挿入モードの OFF と同じく確定
+    してから抜ける）。
+
+未確定を残したまま何かを打ち込みたくない場合は、まず <Esc> や <C-g>
+（|vime-mappings|）で未確定を破棄してから terminal-job モードを抜けること。
+
+terminal バッファでの動作が不要な場合、または terminal-job モードのキー
+マッピングを独自に握る他のプラグイン（toggleterm.nvim 等）と組み合わせて
+競合する場合は無効化できる（|vime-config-terminal|）: >lua
+
+	require("vime").setup({ terminal = { enabled = false } })
+<
+==============================================================================
+8. キーマッピング					*vime-mappings*
 
 日本語入力 ON 中の挿入モードキー（すべて |vime-configuration| で変更可）。
+コマンドライン・terminal バッファでも同じキーで使えるが、<C-r>（辞書登録）
+は両方で無効、<F7>/<F10> の確定・文節操作キーは有効という違いがある
+（詳細は |vime-cmdline-terminal|）。
 
 <C-j>			日本語入力 ON。ON 中は未確定/変換を確定して OFF。
 英字(小文字)		ローマ字→かな（記号・長音・小書き等は |vime-usage|）。
@@ -367,7 +463,7 @@ ASCII モード中はトグル文字（既定 `;`）自体をリテラル入力�
 <Esc>			未確定/変換中を確定して挿入モードを抜ける。
 
 ==============================================================================
-8. ハイライト						*vime-highlights*
+9. ハイライト						*vime-highlights*
 
 VimeUnconfirmed		未確定のかな（既定: underline）。
 VimeSegment		変換中の注目文節（既定: reverse）。
@@ -381,7 +477,7 @@ VimeModeNotify		モード切替時に出る通知 popup（既定: 緑背景・�
 	highlight VimeModeNotify guibg=#1e88e5 guifg=#ffffff gui=bold
 <
 ==============================================================================
-9. モード API						*vime-mode-api*
+10. モード API						*vime-mode-api*
 
 ステータスラインや独自 UI で「いま何モードか」を表示したいときに使う。
 mode_notify による自動 popup を切ったうえで好きな方法で表示できる。
@@ -449,7 +545,7 @@ args.data = { state, preedit, available }。`state` は "composing"/
 補完候補を出しうる状態か。独自の補完 UI やステータス表示に使える。
 
 ==============================================================================
-10. ライセンス						*vime-license*
+11. ライセンス						*vime-license*
 
 MIT License. Copyright (c) 2026 skanehira.
 詳細は同梱の LICENSE を参照。

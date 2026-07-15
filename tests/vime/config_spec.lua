@@ -83,6 +83,24 @@ describe("vime.config.merge", function()
     local c = config.merge({ romaji = { table = user_table } })
     assert.are.equal(user_table, c.romaji.table)
   end)
+
+  it("defaults cmdline and terminal support to enabled", function()
+    local c = config.merge(nil)
+    assert.is_true(c.cmdline.enabled)
+    assert.is_true(c.terminal.enabled)
+  end)
+
+  it("allows disabling cmdline support (e.g. when it conflicts with another cmdline plugin)", function()
+    local c = config.merge({ cmdline = { enabled = false } })
+    assert.is_false(c.cmdline.enabled)
+    assert.is_true(c.terminal.enabled) -- 他方には影響しない
+  end)
+
+  it("allows disabling terminal support independently", function()
+    local c = config.merge({ terminal = { enabled = false } })
+    assert.is_true(c.cmdline.enabled)
+    assert.is_false(c.terminal.enabled)
+  end)
 end)
 
 describe("vime.config.find_anthy_lib", function()

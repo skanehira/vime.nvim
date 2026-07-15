@@ -1,6 +1,6 @@
 # vime.nvim
 
-英字を日本語へ変換するモード式 IME の Neovim プラグイン。挿入モードのまま、OS の IME を切り替えずに日本語を入力できる。
+英字を日本語へ変換するモード式 IME の Neovim プラグイン。挿入モードのまま、OS の IME を切り替えずに日本語を入力できる。コマンドライン（`:`/`/`/`?`）と terminal バッファ（terminal-job モード）でも使える。
 
 ```
 kyouhaiitenkidane → きょうはいいてんきだね → 今日は良い天気だね
@@ -55,6 +55,8 @@ meson compile -C build && meson install -C build
 ## 使い方
 
 挿入モードで `<C-j>` → ローマ字入力 → `<Space>` で変換 → `<CR>` で確定。文節移動・伸縮・カタカナ確定などのキー操作は `:help vime-usage` / `:help vime-mappings`。
+
+コマンドライン（`:`/`/`/`?`）と terminal バッファでも同じ `<C-j>` で日本語入力できる → `:help vime-cmdline-terminal`。
 
 モード切替時はカーソル下に短時間ラベル（既定: 直/あ/A）が出る。ステータスラインに自分で表示したい場合は `require("vime").mode()` と `User VimeModeChanged` autocmd を使う → `:help vime-mode-api`。
 

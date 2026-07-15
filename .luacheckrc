@@ -15,3 +15,11 @@ files["tests/"] = {
 files["lua/vime/romaji.lua"] = {
   ignore = { "542" }, -- empty if branch
 }
+
+-- backend/*.lua は buffer/terminal/cmdline が同じメソッドシグネチャを実装する契約
+-- (§3.3)なので、実装によっては self を参照しない(no-op や引数だけで完結する)メソッド
+-- がある。colon 構文を保つのが呼び出し側との一貫性のため必須なので、self を潰さず
+-- 未使用チェックのみ無効化する。
+files["lua/vime/backend/"] = {
+  self = false,
+}

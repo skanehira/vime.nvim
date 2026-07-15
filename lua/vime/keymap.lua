@@ -34,53 +34,89 @@ local COMPLETION_ONLY = {
   "completion_cancel",
 }
 
-local registered = {} -- buf -> {lhs,...} (常時マッピング)
-local registered_converting = {} -- buf -> {{lhs=,saved=},...} (converting 限定マッピング)
-local registered_completion = {} -- buf -> {{lhs=,saved=},...} (補完 popup 表示中限定マッピング)
+-- cmdline("c")はバッファローカルにできない(:cnoremap は常にグローバル)ため、
+-- このモードだけグローバルスコープで attach/detach する。
+local GLOBAL_MODES = { c = true }
 
--- 一時的に奪うキー(converting/補完限定)を張る。上書き前にそのバッファへ既に
--- 張られていたマッピングがあれば保存し、detach_transient() で復元できるようにする。
--- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
-local function attach_transient(buf, names, config, handlers, store)
-  if store[buf] then
+local registered = {} -- "mode:buf" -> {lhs,...} (常時マッピング)
+local registered_converting = {} -- "mode:buf" -> {{lhs=,saved=},...} (converting 限定マッピング)
+local registered_completion = {} -- "mode:buf" -> {{lhs=,saved=},...} (補完 popup 表示中限定マッピング)
+
+local function store_key(mode, buf)
+  return mode .. ":" .. (GLOBAL_MODES[mode] and "global" or buf)
+end
+
+-- maparg/mapset はグローバルスコープでは buf 引数を取らないので、モードに応じて
+-- nvim_buf_call で包むかどうかを切り替える。
+local function with_scope(mode, buf, fn)
+  if GLOBAL_MODES[mode] then
+    return fn()
+  end
+  return vim.api.nvim_buf_call(buf, fn)
+end
+
+-- 一時的に奪うキー(converting/補完限定)を張る。上書き前にそのバッファ(またはグローバル)へ
+-- 既に張られていたマッピングがあれば保存し、detach_transient() で復元できるようにする。
+-- 同じ mode+buf に対する二重 attach は冪等(2 回目以降は何もしない)。
+local function attach_transient(buf, mode, names, config, handlers, store)
+  local key = store_key(mode, buf)
+  if store[key] then
     return
   end
   local entries = {}
   local km = config.keymaps
+  -- "c"(cmdline)だけ silent を付けない: silent=true な "c" マッピングの callback から
+  -- vim.fn.setcmdline() を呼ぶと、getcmdline() の内部状態は正しく更新されるのに実機で
+  -- 画面が再描画されない(実機検証で確認済みの Neovim の挙動。headless では検知できない)。
+  local map_opts = GLOBAL_MODES[mode] and { nowait = true } or { nowait = true, silent = true }
+  if not GLOBAL_MODES[mode] then
+    map_opts.buffer = buf
+  end
   for _, name in ipairs(names) do
     local lhs = km[name]
-    local existing = vim.api.nvim_buf_call(buf, function()
-      return vim.fn.maparg(lhs, "i", false, true)
+    local existing = with_scope(mode, buf, function()
+      return vim.fn.maparg(lhs, mode, false, true)
     end)
     entries[#entries + 1] = { lhs = lhs, saved = next(existing) ~= nil and existing or nil }
-    vim.keymap.set("i", lhs, handlers[name], { buffer = buf, nowait = true, silent = true })
+    vim.keymap.set(mode, lhs, handlers[name], map_opts)
   end
-  store[buf] = entries
+  store[key] = entries
 end
 
 -- attach_transient() で上書きしたキーを外す。保存済みマッピングがあれば復元し、
 -- なければ削除のみ行う。未 attach なら何もしない(冪等)。
-local function detach_transient(buf, store)
-  local entries = store[buf]
+local function detach_transient(buf, mode, store)
+  local key = store_key(mode, buf)
+  local entries = store[key]
   if not entries then
     return
   end
+  local del_opts = GLOBAL_MODES[mode] and {} or { buffer = buf }
   for _, e in ipairs(entries) do
-    pcall(vim.keymap.del, "i", e.lhs, { buffer = buf })
+    pcall(vim.keymap.del, mode, e.lhs, del_opts)
     if e.saved then
-      vim.api.nvim_buf_call(buf, function()
-        vim.fn.mapset("i", false, e.saved)
+      with_scope(mode, buf, function()
+        vim.fn.mapset(mode, false, e.saved)
       end)
     end
   end
-  store[buf] = nil
+  store[key] = nil
 end
 
--- buf にバッファローカルの挿入モードマッピングを張る。
-function M.attach(buf, config, handlers)
+-- buf にバッファローカル(mode="c" のときはグローバル)の mode マッピングを張る
+-- (mode 省略時は "i")。terminal backend は "t"、cmdline backend は "c" を渡す。
+function M.attach(buf, config, handlers, mode)
+  mode = mode or "i"
   local lhs_list = {}
+  -- "c"(cmdline)だけ silent を付けない: silent=true な "c" マッピングの callback から
+  -- vim.fn.setcmdline() を呼ぶと、getcmdline() の内部状態は正しく更新されるのに実機で
+  -- 画面が再描画されない(実機検証で確認済みの Neovim の挙動。headless では検知できない)。
+  local map_opts = GLOBAL_MODES[mode] and { nowait = true } or { nowait = true, silent = true }
+  if not GLOBAL_MODES[mode] then
+    map_opts.buffer = buf
+  end
   local function map(lhs, fn)
-    vim.keymap.set("i", lhs, fn, { buffer = buf, nowait = true, silent = true })
+    vim.keymap.set(mode, lhs, fn, map_opts)
     lhs_list[#lhs_list + 1] = lhs
   end
 
@@ -108,47 +144,50 @@ function M.attach(buf, config, handlers)
     handlers.kill("<C-u>")
   end) -- 行削除
 
-  registered[buf] = lhs_list
+  registered[store_key(mode, buf)] = lhs_list
 end
 
--- buf のマッピングを外す。converting/補完限定マッピングも合わせて掃除する。
-function M.detach(buf)
-  M.detach_converting(buf)
-  M.detach_completion(buf)
-  local lhs_list = registered[buf]
+-- buf のマッピングを外す。converting/補完限定マッピングも合わせて掃除する(mode 省略時は "i")。
+function M.detach(buf, mode)
+  mode = mode or "i"
+  M.detach_converting(buf, mode)
+  M.detach_completion(buf, mode)
+  local key = store_key(mode, buf)
+  local lhs_list = registered[key]
   if not lhs_list then
     return
   end
+  local del_opts = GLOBAL_MODES[mode] and {} or { buffer = buf }
   for _, lhs in ipairs(lhs_list) do
-    pcall(vim.keymap.del, "i", lhs, { buffer = buf })
+    pcall(vim.keymap.del, mode, lhs, del_opts)
   end
-  registered[buf] = nil
+  registered[key] = nil
 end
 
 -- converting 状態で必要なキーだけを追加でマップする。上書き前に既存のバッファローカル
 -- マッピングがあれば保存し、detach_converting() で元に戻す(他プラグインとの共存)。
--- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
-function M.attach_converting(buf, config, handlers)
-  attach_transient(buf, CONVERTING_ONLY, config, handlers, registered_converting)
+-- 同じ mode+buf に対する二重 attach は冪等(2 回目以降は何もしない)。mode 省略時は "i"。
+function M.attach_converting(buf, config, handlers, mode)
+  attach_transient(buf, mode or "i", CONVERTING_ONLY, config, handlers, registered_converting)
 end
 
 -- converting 限定のマッピングだけを外す。上書き前に別のマッピングがあれば復元する。
--- 未 attach なら何もしない(冪等)。
-function M.detach_converting(buf)
-  detach_transient(buf, registered_converting)
+-- 未 attach なら何もしない(冪等)。mode 省略時は "i"。
+function M.detach_converting(buf, mode)
+  detach_transient(buf, mode or "i", registered_converting)
 end
 
 -- 補完 popup 表示中に必要なキー(候補選択)だけを追加でマップする。上書き前に既存の
 -- バッファローカルマッピングがあれば保存し、detach_completion() で元に戻す。
--- 同じ buf に対する二重 attach は冪等(2 回目以降は何もしない)。
-function M.attach_completion(buf, config, handlers)
-  attach_transient(buf, COMPLETION_ONLY, config, handlers, registered_completion)
+-- 同じ mode+buf に対する二重 attach は冪等(2 回目以降は何もしない)。mode 省略時は "i"。
+function M.attach_completion(buf, config, handlers, mode)
+  attach_transient(buf, mode or "i", COMPLETION_ONLY, config, handlers, registered_completion)
 end
 
 -- 補完限定のマッピングだけを外す。上書き前に別のマッピングがあれば復元する。
--- 未 attach なら何もしない(冪等)。
-function M.detach_completion(buf)
-  detach_transient(buf, registered_completion)
+-- 未 attach なら何もしない(冪等)。mode 省略時は "i"。
+function M.detach_completion(buf, mode)
+  detach_transient(buf, mode or "i", registered_completion)
 end
 
 return M

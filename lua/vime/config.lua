@@ -49,6 +49,15 @@ M.defaults = {
     -- nvim-cmp 連携。true で vime モード ON 中は cmp の補完を抑止する。
     nvim_cmp = false,
   },
+  cmdline = {
+    -- ":"/"/"/"?" のコマンドラインでの日本語入力。他の cmdline 拡張プラグイン
+    -- (cmp-cmdline 等)と競合する場合の逃げ道として false にできる。
+    enabled = true,
+  },
+  terminal = {
+    -- terminal バッファ(terminal-job モード)での日本語入力。
+    enabled = true,
+  },
 }
 
 -- OS ごとの共有ライブラリ拡張子(macOS=dylib / その他=so)。
