@@ -431,6 +431,28 @@ describe("vime.keymap global scope (mode c)", function()
     assert.is_nil(find_global_map("a"))
   end)
 
+  it("does not set silent=true on mode c mappings (silent suppresses the cmdline redraw after setcmdline())", function()
+    -- 実機検証: vim.keymap.set("c", lhs, fn, { silent = true }) で張ったマッピングの
+    -- callback から vim.fn.setcmdline() を呼ぶと、getcmdline() の内部状態は正しく更新
+    -- されるのに画面が再描画されない(Neovim の挙動)。"i"/"t" では無害だが "c" では
+    -- 致命的なので、"c" だけ silent を落とす。
+    local buf = api.nvim_create_buf(false, true)
+    keymap.attach(buf, config.merge(nil), noop_handlers(), "c")
+    local a = find_global_map("a")
+    assert.is_not_nil(a)
+    assert.are.equal(0, a.silent)
+    keymap.detach(buf, "c")
+  end)
+
+  it("still sets silent=true on mode i mappings (no redraw side effect there)", function()
+    local buf = api.nvim_create_buf(false, true)
+    keymap.attach(buf, config.merge(nil), noop_handlers())
+    local a = find_map(buf, "a")
+    assert.is_not_nil(a)
+    assert.are.equal(1, a.silent)
+    keymap.detach(buf)
+  end)
+
   it("attach_converting(mode=c) saves and detach_converting restores a pre-existing global cmap", function()
     local buf = api.nvim_create_buf(false, true)
     local other_plugin_calls = {}

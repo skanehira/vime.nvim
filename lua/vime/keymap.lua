@@ -65,7 +65,10 @@ local function attach_transient(buf, mode, names, config, handlers, store)
   end
   local entries = {}
   local km = config.keymaps
-  local map_opts = { nowait = true, silent = true }
+  -- "c"(cmdline)だけ silent を付けない: silent=true な "c" マッピングの callback から
+  -- vim.fn.setcmdline() を呼ぶと、getcmdline() の内部状態は正しく更新されるのに実機で
+  -- 画面が再描画されない(実機検証で確認済みの Neovim の挙動。headless では検知できない)。
+  local map_opts = GLOBAL_MODES[mode] and { nowait = true } or { nowait = true, silent = true }
   if not GLOBAL_MODES[mode] then
     map_opts.buffer = buf
   end
@@ -105,7 +108,10 @@ end
 function M.attach(buf, config, handlers, mode)
   mode = mode or "i"
   local lhs_list = {}
-  local map_opts = { nowait = true, silent = true }
+  -- "c"(cmdline)だけ silent を付けない: silent=true な "c" マッピングの callback から
+  -- vim.fn.setcmdline() を呼ぶと、getcmdline() の内部状態は正しく更新されるのに実機で
+  -- 画面が再描画されない(実機検証で確認済みの Neovim の挙動。headless では検知できない)。
+  local map_opts = GLOBAL_MODES[mode] and { nowait = true } or { nowait = true, silent = true }
   if not GLOBAL_MODES[mode] then
     map_opts.buffer = buf
   end
