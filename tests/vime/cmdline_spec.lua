@@ -70,32 +70,20 @@ describe("vime.backend.cmdline", function()
       vim.o.laststatus = saved_laststatus
     end)
 
-    it("places the float directly above the cmdline when there is no statusline row", function()
-      vim.o.laststatus = 0
-      local b = backend_cmdline.new(api.nvim_get_current_buf())
-      local pos = b:popup_pos()
-      assert.are.equal(vim.o.lines - vim.o.cmdheight - 1, pos.row)
-    end)
-
-    it("places the float one row higher to avoid a global statusline (laststatus=3)", function()
-      vim.o.laststatus = 3
-      local b = backend_cmdline.new(api.nvim_get_current_buf())
-      local pos = b:popup_pos()
-      assert.are.equal(vim.o.lines - vim.o.cmdheight - 2, pos.row)
-    end)
-
-    it("places the float one row higher when laststatus=2 (always show, per window)", function()
-      vim.o.laststatus = 2
-      local b = backend_cmdline.new(api.nvim_get_current_buf())
-      local pos = b:popup_pos()
-      assert.are.equal(vim.o.lines - vim.o.cmdheight - 2, pos.row)
-    end)
-
-    it("does not reserve a statusline row for laststatus=1 with a single window", function()
-      vim.o.laststatus = 1
-      local b = backend_cmdline.new(api.nvim_get_current_buf())
-      local pos = b:popup_pos()
-      assert.are.equal(vim.o.lines - vim.o.cmdheight - 1, pos.row)
+    -- 注: anchor="SW" の row は「下エッジ(排他)」を指す。UI 接続の実機実験で確認済み:
+    -- {anchor="SW", row=10, height=1} の float は 0-based row 9 を占有する
+    -- (screenstring / nvim_win_get_position の両方で確認)。したがって
+    -- row = lines - cmdheight を渡すと float は cmdline の直上の行を占有する
+    -- (statusline が表示されていればその行と重なるが、それが仕様。float は statusline
+    -- より前面に描画されるので隠れない)。headless では float の layout が走らず
+    -- nvim_win_get_position が設定値をそのまま返すため、占有行そのものの検証は
+    -- headless では不可能(実機の screenstring 検証で裏取りする)。
+    it("puts the float bottom edge at the cmdline top row regardless of laststatus (statusline overlap is intended)", function()
+      for _, ls in ipairs({ 0, 2, 3 }) do
+        vim.o.laststatus = ls
+        local b = backend_cmdline.new(api.nvim_get_current_buf())
+        assert.are.equal(vim.o.lines - vim.o.cmdheight, b:popup_pos().row)
+      end
     end)
 
     it("falls back to col=0 when not actually editing the command line", function()
@@ -105,13 +93,34 @@ describe("vime.backend.cmdline", function()
       assert.are.equal(0, pos.col)
     end)
 
-    it("aligns the column with the current cmdline cursor position(candidate popup / preedit float の左端をカーソルに合わせる)", function()
-      local col = probe_in_cmdline(":ab", function()
-        local b = backend_cmdline.new(api.nvim_get_current_buf())
+    -- 注: popup_pos() の col は「未確定領域の先頭(self.anchor)」に揃える必要がある。
+    -- カーソル位置(未確定領域の末尾)に揃えると、確定済み前置が無いケース(":これは" 等)で
+    -- float が実テキストより右にズレる(実機で発見・報告されたバグ)。
+    --
+    -- backend は実際の実行時と同じ順序で操作する: ":" を打った直後(まだ何も未確定が無い
+    -- 状態、anchor はこの時点のカーソル)に new() し、その後 set_region_text() で未確定を
+    -- 書き込む(render() が実際にやっていることと同じ)。テスト構築時に既に文字が入った
+    -- 状態で new() すると anchor がカーソル(末尾)に一致してしまい、バグを覆い隠してしまう
+    -- (このテストの前身がまさにそれで、実際のバグを検出できていなかった)。
+    it("[ground truth] positions the float column at the start of the preedit region, not at the cursor, when there is no confirmed prefix", function()
+      local col = probe_in_cmdline(":", function()
+        local b = backend_cmdline.new(api.nvim_get_current_buf()) -- ":" 直後、anchor=0
+        b:set_region_text("これは") -- 未確定を書き込む(anchor は 0 のまま、len が進む)
         return b:popup_pos().col
       end)
-      -- ":ab" (prompt + 入力済み2文字) の表示幅ぶん右にずれた位置がカーソル。
-      assert.are.equal(3, col)
+      -- ":" (prompt) の表示幅 = 1。"これは" はその直後(col 1)から始まるはず。
+      -- カーソル基準の誤った実装だと ":これは" 全体の表示幅(7)になってしまう。
+      assert.are.equal(1, col)
+    end)
+
+    it("[ground truth] positions the float column at the display width of the confirmed prefix before the preedit", function()
+      local col = probe_in_cmdline(":abc", function()
+        local b = backend_cmdline.new(api.nvim_get_current_buf()) -- "abc" 入力済み、anchor はその末尾
+        b:set_region_text("これは") -- "abc" の直後に未確定を書き込む(anchor はここに固定)
+        return b:popup_pos().col
+      end)
+      -- ":abc" (prompt + 確定済み前置、すべて ASCII) の表示幅 = 4。
+      assert.are.equal(4, col)
     end)
 
     it("anchors from the bottom-left(SW) so a multi-row candidate popup grows upward instead of into the statusline/cmdline", function()
@@ -151,6 +160,31 @@ describe("vime end-to-end (cmdline)", function()
     end
     return nil
   end
+
+  -- モード切替通知も preedit float と同じ位置ルール(cmdline の直上、statusline と
+  -- 重なって良い)で出す。既定のカーソル相対のままだと、cmdline モード中はカーソルが
+  -- cmdline 上に無いため無関係な場所に表示されてしまう。
+  it("places the mode notify at the cmdline popup position when toggled inside the cmdline", function()
+    vime.setup({
+      anthy = { lib = LIB },
+      mode_notify = { duration = 100, labels = { hiragana = "HIRA" } },
+    })
+    local probed = probe_in_cmdline(":", function()
+      vime.toggle() -- cmdline セッション中に ON: mode notify が出る
+      for _, win in ipairs(api.nvim_list_wins()) do
+        local cfg = api.nvim_win_get_config(win)
+        if cfg.relative ~= "" then
+          local line = api.nvim_buf_get_lines(api.nvim_win_get_buf(win), 0, 1, false)[1]
+          if line == "HIRA" then
+            return { relative = cfg.relative, row = cfg.row, anchor = cfg.anchor }
+          end
+        end
+      end
+      return nil
+    end)
+    assert.are.same({ relative = "editor", row = vim.o.lines - vim.o.cmdheight, anchor = "SW" }, probed)
+    vime.toggle()
+  end)
 
   it("shows the shared preedit float with an underline while composing (before <Space>)", function()
     vime.toggle()

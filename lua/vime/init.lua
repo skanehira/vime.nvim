@@ -587,7 +587,11 @@ local function notify_mode_change_if_needed()
   local cfg = st.cfg and st.cfg.mode_notify
   if cfg and cfg.enabled then
     local label = (cfg.labels and cfg.labels[current.name]) or current.name
-    ui.show_mode_notify(label, cfg.duration or 1000)
+    -- backend の popup_pos に合わせて表示する(buffer/terminal はカーソル直下で従来どおり。
+    -- cmdline はカーソルが cmdline 上に無くカーソル相対だと無関係な場所に出るため、
+    -- preedit float と同じ cmdline 直上に出す)。
+    local pos = st.backend and st.backend:popup_pos() or nil
+    ui.show_mode_notify(label, cfg.duration or 1000, pos)
   end
 end
 

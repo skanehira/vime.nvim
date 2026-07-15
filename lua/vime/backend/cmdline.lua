@@ -99,44 +99,31 @@ function M:passthrough(key)
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "n", false)
 end
 
--- laststatus に応じてステータスライン行が実際に表示されるか判定する。
--- 2/3: 常時表示。1: ウィンドウが複数あるときだけ表示。0: 非表示。
-local function statusline_visible()
-  local ls = vim.o.laststatus
-  if ls == 2 or ls == 3 then
-    return true
-  end
-  if ls == 1 then
-    return #vim.api.nvim_list_wins() > 1
-  end
-  return false
-end
-
--- 現在の cmdline カーソルの表示列(0-based)を返す。getcmdscreenpos() は
--- プロンプト("/"/"?"/"/" 等)込みの 1-based byte 位置を返す仕様なので、プロンプト+
--- cmdline 文字列のうちカーソルより手前の部分の表示幅を計算する。cmdline 編集中で
--- なければ(byte 位置 0)0 を返す。
-local function cursor_col()
-  local screenpos = vim.fn.getcmdscreenpos()
-  if screenpos <= 0 then
+-- 未確定領域の先頭(self.anchor)の表示列(0-based)を返す。float が表示するのは
+-- 「未確定領域と同じテキスト」なので、揃えるべきは未確定領域の末尾(カーソル位置)では
+-- なく先頭。プロンプト("/"/"?"/"/" 等)+ cmdline 文字列のうち anchor より手前の部分の
+-- 表示幅を計算する。cmdline 編集中でなければ(getcmdtype() が空)0 を返す。
+local function anchor_col(self)
+  if vim.fn.getcmdtype() == "" then
     return 0
   end
   local full = vim.fn.getcmdtype() .. vim.fn.getcmdline()
-  return vim.fn.strdisplaywidth(full:sub(1, screenpos - 1))
+  return vim.fn.strdisplaywidth(full:sub(1, self.anchor + #vim.fn.getcmdtype()))
 end
 
--- 候補 popup・文節状態 float は cmdline の現在のカーソル位置の直上に editor 相対で出す
--- (candidate popup がカーソルから離れて見えないように)。ステータスラインが表示されて
--- いる環境ではその行と重なってしまうため、行はさらに 1 行上げる。anchor="SW"(南西基準)
--- にすることで、複数行になる候補一覧popup がその行から上方向に伸び、ステータスライン・
--- cmdline 自体には食い込まないようにする(単一行の preedit float は NW/SW で見た目が
--- 変わらない)。
+-- 候補 popup・文節状態 float・モード通知は cmdline 上の未確定領域の先頭の直上に
+-- editor 相対で出す(float が表示する文字列の先頭を、実際に同じ文字列が cmdline 上で
+-- 始まる位置に揃える)。anchor="SW"(南西基準)にすることで、複数行になる候補一覧popup
+-- が上方向に伸び、cmdline には食い込まない。SW の row は「下エッジ(排他)」で、row=R の
+-- float は 0-based row R-1 までを占有する(実機で screenstring により確認済み)。
+-- cmdline の最上段(0-based で lines - cmdheight)を row に渡すと float はその直上の行を
+-- 占有する。ステータスラインが表示されていればその行と重なるが、float の方が前面に
+-- 描画されるので隠れない(かぶせて cmdline に隣接させるのが仕様)。
 function M:popup_pos()
-  local reserved = statusline_visible() and 2 or 1
   return {
     relative = "editor",
-    row = math.max(0, vim.o.lines - vim.o.cmdheight - reserved),
-    col = cursor_col(),
+    row = math.max(0, vim.o.lines - vim.o.cmdheight),
+    col = anchor_col(self),
     anchor = "SW",
   }
 end
