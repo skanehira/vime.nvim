@@ -271,7 +271,7 @@ terminal は離脱経路が 2 つあり挙動が逆になる点に注意: **`Ter
 
 **cmdline backend の割り込みモデル**: `CmdlineEnter` で現在の `st.backend`（`buffer` か `terminal`）を `st.saved_backend` に退避し、`cmdline` backend を `st.backend` に差し替えて `"c"` グローバルマッピングを張る。`"c"` はグローバルなので既存 backend の `"i"`/`"t"` マッピングは detach しない（モードが異なり衝突しないため）。`CmdlineLeave` で `"c"` マッピングを detach し、`st.saved_backend` を `st.backend` へ復元する（`st.saved_backend` が無い＝退避前から backend が無かった場合のみ `attach_to_current_buf()` へフォールバック）。`enable()`/`toggle()` は `attach_to_current_context()` で現在のコンテキスト（`getcmdtype()` → `buftype` の順）を見て 3 backend のどれを張るか決めるので、cmdline セッション中に toggle しても正しく `cmdline` backend が選ばれる。cmdline セッション中に `<C-j>` で OFF にした場合も `disable()` が `st.saved_backend` のキーマップを合わせて detach する（割り込まれた側のマッピングが残留しないように）。
 
-`terminal`/`cmdline` は `config.terminal.enabled`/`config.cmdline.enabled`（既定 `true`）で無効化できる（§8）。無効時は該当 autocmd が該当 backend を張らず、typed した文字は vime に横取りされずそのまま書込先へ届く。
+`terminal`/`cmdline` は `config.terminal.enabled`/`config.cmdline.enabled`（既定 `false`。opt-in）で有効化できる（§8）。無効（既定）時は該当 autocmd が該当 backend を張らず、typed した文字は vime に横取りされずそのまま書込先へ届く。
 
 ## 4. 処理フロー
 
@@ -428,11 +428,13 @@ require("vime").setup({
     nvim_cmp = false,  -- true で vime モード ON 中は nvim-cmp の補完を抑止する
   },
   cmdline = {
-    enabled = true,  -- ":"/"/"/"?" での日本語入力(§3.3)。cmp-cmdline 等と競合する場合は false
+    enabled = false,  -- ":"/"/"/"?" での日本語入力(§3.3)。既定は無効(opt-in)。有効化すると
+                      -- cmp-cmdline 等の他の cmdline 拡張プラグインと競合しうる
   },
   terminal = {
-    enabled = true,  -- terminal バッファ(terminal-job モード)での日本語入力(§3.3)。
-                      -- toggleterm.nvim 等が独自に terminal-job モードのキーマップを握る場合は false
+    enabled = false,  -- terminal バッファ(terminal-job モード)での日本語入力(§3.3)。既定は無効
+                      -- (opt-in)。toggleterm.nvim 等が独自に terminal-job モードのキーマップを
+                      -- 握る場合は無効のままにしておく
   },
 })
 ```

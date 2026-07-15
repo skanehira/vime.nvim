@@ -112,10 +112,10 @@ setup() に渡せる設定と既定値: >lua
 	    nvim_cmp = false,             -- true で vime ON 中は nvim-cmp を抑止
 	  },
 	  cmdline = {
-	    enabled = true,               -- コマンドラインでの日本語入力(|vime-cmdline|)
+	    enabled = false,              -- コマンドラインでの日本語入力(|vime-cmdline|)。既定は無効
 	  },
 	  terminal = {
-	    enabled = true,               -- terminal バッファでの日本語入力(|vime-terminal|)
+	    enabled = false,              -- terminal バッファでの日本語入力(|vime-terminal|)。既定は無効
 	  },
 	})
 <
@@ -206,14 +206,15 @@ integrations		外部プラグイン連携の opt-in 設定。本体は連携先�
 
 						*vime-config-cmdline*
 cmdline.enabled		コマンドライン（: / / / ?）での日本語入力（|vime-cmdline|）。
-			既定で有効。cmp-cmdline 等の他の cmdline 拡張プラグインと
-			競合する場合は `false` で無効化できる。
+			既定で無効（opt-in）。`enabled = true` で有効化する。
+			cmp-cmdline 等の他の cmdline 拡張プラグインと競合する
+			場合は無効のままにしておく。
 
 						*vime-config-terminal*
 terminal.enabled	terminal バッファでの日本語入力（|vime-terminal|）。
-			既定で有効。terminal-job モードのキーマッピングを独自に
-			握る toggleterm.nvim 等と競合する場合は `false` で
-			無効化できる。
+			既定で無効（opt-in）。`enabled = true` で有効化する。
+			terminal-job モードのキーマッピングを独自に握る
+			toggleterm.nvim 等と競合する場合は無効のままにしておく。
 
 SKK 辞書の取り込みは設定ではなく CLI で行う（|vime-dictionary|）。
 
@@ -367,9 +368,11 @@ ASCII モード中はトグル文字（既定 `;`）自体をリテラル入力�
 7. コマンドライン / ターミナル			*vime-cmdline-terminal*
 
 挿入モードだけでなく、コマンドライン（: / / / ?）と terminal バッファ
-（terminal-job モード）でも日本語入力できる。<C-j>（既定。toggle）はこれらの
-モードにもグローバルに割り当てられており、挿入モードで ON にしたまま移動
-すれば引き継がれる。
+（terminal-job モード）でも日本語入力できる。ただしどちらも既定は無効
+（opt-in）で、|vime-config-cmdline| / |vime-config-terminal| の
+`enabled = true` を setup() に渡すと有効になる。有効化すると <C-j>
+（既定。toggle）がこれらのモードにもグローバルに割り当てられ、挿入モードで
+ON にしたまま移動すれば引き継がれる。
 
 コマンドライン ~					*vime-cmdline*
 
@@ -397,11 +400,12 @@ ASCII モード中はトグル文字（既定 `;`）自体をリテラル入力�
 が対象にするのは : / / / ? の 3 つのみ（|input()| が開く `@` プロンプトや
 式レジスタ `=` は対象外で、これらは vime に横取りされずそのまま使える）。
 
-cmp-cmdline 等の他の cmdline 拡張プラグインと競合する場合は無効化できる
-（|vime-config-cmdline|）: >lua
+既定は無効。有効化するには（|vime-config-cmdline|）: >lua
 
-	require("vime").setup({ cmdline = { enabled = false } })
+	require("vime").setup({ cmdline = { enabled = true } })
 <
+cmp-cmdline 等の他の cmdline 拡張プラグインと競合する場合は無効のままに
+しておく。
 ターミナル ~					*vime-terminal*
 
 |:terminal| で開いた terminal バッファの terminal-job モード（|Terminal-mode|）
@@ -430,12 +434,12 @@ inline virtual text として表示される（通常バッファと同じ下線
 未確定を残したまま何かを打ち込みたくない場合は、まず <Esc> や <C-g>
 （|vime-mappings|）で未確定を破棄してから terminal-job モードを抜けること。
 
-terminal バッファでの動作が不要な場合、または terminal-job モードのキー
-マッピングを独自に握る他のプラグイン（toggleterm.nvim 等）と組み合わせて
-競合する場合は無効化できる（|vime-config-terminal|）: >lua
+既定は無効。有効化するには（|vime-config-terminal|）: >lua
 
-	require("vime").setup({ terminal = { enabled = false } })
+	require("vime").setup({ terminal = { enabled = true } })
 <
+terminal-job モードのキーマッピングを独自に握る他のプラグイン
+（toggleterm.nvim 等）と組み合わせて競合する場合は無効のままにしておく。
 ==============================================================================
 8. キーマッピング					*vime-mappings*
 
