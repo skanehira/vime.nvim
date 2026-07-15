@@ -34,8 +34,8 @@ kyouhaiitenkidane → きょうはいいてんきだね → 今日はいい天�
 - 英小文字確定（F10。入力したローマ字をそのまま確定。例: ふぉお → foo）
 - ユーザー辞書（SKK 辞書 JISYO JSON を CLI で anthy 私的辞書へ取り込み。送りなし=名詞のみ。§8.2）
 - 設定インターフェース（libanthy パス・キーマップ・ハイライト・ローマ字テーブル）
-- コマンドライン（`:`/`/`/`?`）での日本語入力（未確定はインライン、変換中の文節状態は floating window。§3.3・§6）
-- terminal バッファ（terminal-job モード）での日本語入力（未確定は floating window 表示、確定のみ PTY へ送出。§3.3・§6）
+- コマンドライン（`:`/`/`/`?`）での日本語入力（未確定はインライン + cmdline 直上の preedit float に装飾付きで併記。§3.3・§6）
+- terminal バッファ（terminal-job モード）での日本語入力（未確定はカーソル位置の inline virtual text 表示、確定のみ PTY へ送出。§3.3・§6）
 
 ### MVP に含まない（将来）
 
@@ -64,7 +64,7 @@ lua/vime/
 ├── keymap.lua    キー(モード可変: i/t/c) → init のハンドラへディスパッチ
 ├── backend/      書込先の抽象化(§3.3)。session の状態をどこへどう反映するかを差し替える
 │   ├── buffer.lua    通常バッファ + 挿入モード("i")。バッファへ直接書く既定の書込先
-│   ├── terminal.lua  terminal バッファ + terminal-job モード("t")。preedit float 表示 + chansend
+│   ├── terminal.lua  terminal バッファ + terminal-job モード("t")。inline virtual text 表示 + chansend
 │   └── cmdline.lua   コマンドライン + cmdline モード("c")。setcmdline によるインライン表示
 └── integrations/ 外部プラグイン連携（opt-in。本体は依存しない）
     └── nvim_cmp.lua  vime モード ON 中は nvim-cmp の補完を抑止する（pcall で optional）
@@ -76,8 +76,8 @@ lua/vime/
 keymap ──► (init の handlers) ──► session ──► anthy (DIP インターフェース)
                                         └──► romaji (純粋関数)
    init ──► backend/{buffer,cmdline,terminal} (session の状態をどこへどう反映するか。§3.3)
-   backend ──► ui (preedit の描画先。buffer は extmark、cmdline/terminal は preedit float)
-   ui ◄── init (候補 popup を出す。位置は backend:popup_pos() 経由。モード通知 popup は常にカーソル直下)
+   backend ──► ui (preedit の描画先。buffer は extmark、terminal は inline virt_text、cmdline は preedit float 併記)
+   ui ◄── init (候補 popup・モード通知 popup を出す。位置はどちらも backend:popup_pos() 経由)
    mode ◄── init (session+enabled を集約して外向きモード名を導出)
    User VimeModeChanged ◄── init (モード名が変わったときに発火・data に mode テーブル)
    User VimePreeditChanged ◄── init (未確定が変わったときに発火・data={state,preedit,available})
@@ -185,7 +185,7 @@ ui.show_preedit_float(view, pos) / ui.close_preedit_float() -- 共有 preedit fl
 ui.clear(buf)                                       -- extmark 全消去 + 候補 popup を閉じる
 ```
 
-ハイライトは `VimeUnconfirmed`（既定 underline）/`VimeSegment`（既定 reverse）/`VimeModeNotify`（既定: 緑背景・白文字・bold、`default=true` なので `:highlight` で上書き可）。`ui.setup(opts)` の `opts.mode_notify_highlight` に `nvim_set_hl` 互換テーブルを渡すと明示上書き(default フラグなし)になり、`config.mode_notify.highlight` 経由で `init.setup()` から流れる。latin/kana を別色にしないので、ui の関数は既存と同じシグネチャを保つ。`show_popup`/`show_mode_notify` の第 3 引数 `pos`（省略可）は `nvim_open_win` 互換の配置テーブル（`{relative, row, col, anchor?}`）で、省略時は従来どおりカーソル直下。候補 popup（`show_candidate_window`）は `st.backend:popup_pos()`（§3.3）の戻り値を渡すので、backend ごとにふさわしい位置に出る。**モード通知 popup（`show_mode_notify`）は `init` から常に `pos` 省略で呼ばれるため、cmdline セッション中でもカーソル直下（=元の挿入位置）に固定表示される**（backend には追従しない）。`ui.show_preedit_float(view, pos)` は `session:preedit_segments()` の `view` をそのまま渡すと、下線・文節反転込みの 1 行 floating window に描画する内部ヘルパを持つ（`highlight_preedit`/`highlight_segments` をその float の scratch buffer に対して適用するので byte 計算の不変条件は 1 箇所のまま）。`buffer` backend の `render()` はバッファへ直接書くので使わない。`terminal`/`cmdline` backend が使う。モード通知 popup は `init` のモード変化検出から呼ばれ、`vim.defer_fn` で自動消滅し、連続切替時は先に開いている popup を閉じてから新しく開く（古い defer_fn が遅延発火しても win は既に無効なので no-op）。`zindex` は `max(200, host_z + 40)` で動的に決まり、ホストの floating window（AI 入力欄等）の中で入力していても隠れない。候補 popup は `max(250, host_z + 50)` なので、共存時は候補が前面に来る。
+ハイライトは `VimeUnconfirmed`（既定 underline）/`VimeSegment`（既定 reverse）/`VimeModeNotify`（既定: 緑背景・白文字・bold、`default=true` なので `:highlight` で上書き可）。`ui.setup(opts)` の `opts.mode_notify_highlight` に `nvim_set_hl` 互換テーブルを渡すと明示上書き(default フラグなし)になり、`config.mode_notify.highlight` 経由で `init.setup()` から流れる。latin/kana を別色にしないので、ui の関数は既存と同じシグネチャを保つ。`show_popup`/`show_mode_notify` の第 3 引数 `pos`（省略可）は `nvim_open_win` 互換の配置テーブル（`{relative, row, col, anchor?}`）で、省略時はカーソル直下。候補 popup（`show_candidate_window`）もモード通知 popup（`show_mode_notify`）も `init` から `st.backend:popup_pos()`（§3.3）の戻り値を渡して呼ばれるので、backend ごとにふさわしい位置に出る（buffer/terminal はカーソル直下、cmdline は cmdline 直上。cmdline セッション中はカーソルが cmdline 上に無く、カーソル相対だと無関係な場所に出るため）。`ui.show_preedit_float(view, pos)` は `session:preedit_segments()` の `view` をそのまま渡すと、下線・文節反転込みの 1 行 floating window に描画する内部ヘルパを持つ（`highlight_preedit`/`highlight_segments` をその float の scratch buffer に対して適用するので byte 計算の不変条件は 1 箇所のまま）。使うのは `cmdline` backend のみ。`ui.show_inline_preedit(buf, row, col, view)` は同じ `view` を inline virtual text の extmark 1 個（`virt_text_pos="inline"`、文節ごとに `VimeSegment`/`VimeUnconfirmed` の chunk）として描画する。実文字を書き込めない terminal buffer 用で、`terminal` backend が使う。モード通知 popup は `init` のモード変化検出から呼ばれ、`vim.defer_fn` で自動消滅し、連続切替時は先に開いている popup を閉じてから新しく開く（古い defer_fn が遅延発火しても win は既に無効なので no-op）。`zindex` は `max(200, host_z + 40)` で動的に決まり、ホストの floating window（AI 入力欄等）の中で入力していても隠れない。候補 popup は `max(250, host_z + 50)` なので、共存時は候補が前面に来る。
 
 #### `mode.lua`（純粋関数）
 
@@ -256,8 +256,8 @@ backend:place_cursor()        -- カーソル/カーソル相当を未確定末�
 
 | 操作 | `buffer`（既定） | `terminal` | `cmdline` |
 | --- | --- | --- | --- |
-| 書込先 | 実バッファ(`nvim_buf_set_text`) | preedit float（実バッファへは書かない） | `getcmdline`/`setcmdline`（プレーン文字列） |
-| 未確定の表示 | extmark 下線/文節反転 | float 内で `highlight_preedit`/`highlight_segments` を流用 | インラインはプレーン。converting 中のみ共有 float に文節状態を併記 |
+| 書込先 | 実バッファ(`nvim_buf_set_text`) | inline virtual text（実バッファへは書かない） | `getcmdline`/`setcmdline`（プレーン文字列） |
+| 未確定の表示 | extmark 下線/文節反転 | カーソル位置の inline virt_text extmark（`show_inline_preedit`。下線/文節反転を chunk のハイライトで表現） | インラインはプレーン。未確定がある間は常に cmdline 直上の preedit float に下線/文節反転付きで併記 |
 | 確定経路 | 挿入モード中は feedkeys（dot repeat 対応）、それ以外は API 置換 | `chansend(channel, text)`（置換ではなく PTY への送出） | `setcmdline` による API 置換のみ |
 | `supports("completion"/"register_word")` | すべて `true` | すべて `false` | すべて `false` |
 | keymap スコープ | バッファローカル（`"i"`） | バッファローカル（`"t"`） | グローバル（`"c"`） |
