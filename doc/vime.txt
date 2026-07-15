@@ -1,6 +1,6 @@
 *vime.txt*	挿入モードのまま日本語入力できるモード式 IME
 
-Author:  skanehira <factx.skanehira@gmail.com>
+Author:  skanehira <kanehira.sho@techlead-it.com>
 License: MIT License (see |vime-license|)
 
 ==============================================================================
