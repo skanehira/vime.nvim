@@ -112,11 +112,33 @@ local function statusline_visible()
   return false
 end
 
--- 候補 popup・文節状態 float は cmdline 行の直上に editor 相対で出す。ステータスライン
--- が表示されている環境ではその行と重なってしまうため、その分もう 1 行上げる。
+-- 現在の cmdline カーソルの表示列(0-based)を返す。getcmdscreenpos() は
+-- プロンプト("/"/"?"/"/" 等)込みの 1-based byte 位置を返す仕様なので、プロンプト+
+-- cmdline 文字列のうちカーソルより手前の部分の表示幅を計算する。cmdline 編集中で
+-- なければ(byte 位置 0)0 を返す。
+local function cursor_col()
+  local screenpos = vim.fn.getcmdscreenpos()
+  if screenpos <= 0 then
+    return 0
+  end
+  local full = vim.fn.getcmdtype() .. vim.fn.getcmdline()
+  return vim.fn.strdisplaywidth(full:sub(1, screenpos - 1))
+end
+
+-- 候補 popup・文節状態 float は cmdline の現在のカーソル位置の直上に editor 相対で出す
+-- (candidate popup がカーソルから離れて見えないように)。ステータスラインが表示されて
+-- いる環境ではその行と重なってしまうため、行はさらに 1 行上げる。anchor="SW"(南西基準)
+-- にすることで、複数行になる候補一覧popup がその行から上方向に伸び、ステータスライン・
+-- cmdline 自体には食い込まないようにする(単一行の preedit float は NW/SW で見た目が
+-- 変わらない)。
 function M:popup_pos()
   local reserved = statusline_visible() and 2 or 1
-  return { relative = "editor", row = math.max(0, vim.o.lines - vim.o.cmdheight - reserved), col = 0, anchor = "NW" }
+  return {
+    relative = "editor",
+    row = math.max(0, vim.o.lines - vim.o.cmdheight - reserved),
+    col = cursor_col(),
+    anchor = "SW",
+  }
 end
 
 return M

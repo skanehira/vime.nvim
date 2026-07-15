@@ -97,6 +97,28 @@ describe("vime.backend.cmdline", function()
       local pos = b:popup_pos()
       assert.are.equal(vim.o.lines - vim.o.cmdheight - 1, pos.row)
     end)
+
+    it("falls back to col=0 when not actually editing the command line", function()
+      -- getcmdscreenpos() は cmdline 編集中以外は 0 を返す仕様(:help getcmdscreenpos())。
+      local b = backend_cmdline.new(api.nvim_get_current_buf())
+      local pos = b:popup_pos()
+      assert.are.equal(0, pos.col)
+    end)
+
+    it("aligns the column with the current cmdline cursor position(candidate popup / preedit float の左端をカーソルに合わせる)", function()
+      local col = probe_in_cmdline(":ab", function()
+        local b = backend_cmdline.new(api.nvim_get_current_buf())
+        return b:popup_pos().col
+      end)
+      -- ":ab" (prompt + 入力済み2文字) の表示幅ぶん右にずれた位置がカーソル。
+      assert.are.equal(3, col)
+    end)
+
+    it("anchors from the bottom-left(SW) so a multi-row candidate popup grows upward instead of into the statusline/cmdline", function()
+      local b = backend_cmdline.new(api.nvim_get_current_buf())
+      local pos = b:popup_pos()
+      assert.are.equal("SW", pos.anchor)
+    end)
   end)
 end)
 
