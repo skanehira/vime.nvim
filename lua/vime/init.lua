@@ -750,12 +750,12 @@ end
 -- 初めて効くので害はない。
 local function attach_to_current_context()
   local cmdtype = vim.fn.getcmdtype()
-  if CMDLINE_TYPES[cmdtype] then
+  if st.cfg.cmdline.enabled and CMDLINE_TYPES[cmdtype] then
     attach_cmdline_backend()
     return
   end
   local cur_buf = api.nvim_get_current_buf()
-  if vim.bo[cur_buf].buftype == "terminal" then
+  if st.cfg.terminal.enabled and vim.bo[cur_buf].buftype == "terminal" then
     attach_to_terminal_buf(cur_buf)
   else
     attach_to_current_buf()
@@ -908,7 +908,7 @@ function M.setup(opts)
     group = group,
     desc = "vime: follow terminal-job mode",
     callback = function(args)
-      if not st.enabled then
+      if not st.enabled or not st.cfg.terminal.enabled then
         return
       end
       if st.backend and args.buf == st.backend.buf then
@@ -932,7 +932,7 @@ function M.setup(opts)
     group = group,
     desc = "vime: attach cmdline backend",
     callback = function()
-      if not st.enabled or not CMDLINE_TYPES[vim.fn.getcmdtype()] then
+      if not st.enabled or not st.cfg.cmdline.enabled or not CMDLINE_TYPES[vim.fn.getcmdtype()] then
         return
       end
       attach_cmdline_backend()

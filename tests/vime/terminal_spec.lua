@@ -177,4 +177,15 @@ describe("vime end-to-end (terminal)", function()
     end)
     assert.is_true(ok, "toggle OFF で確定テキストが PTY へ送られるはず")
   end)
+
+  it("does not attach the terminal backend's 't' mapping when terminal.enabled is false", function()
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = false } })
+    open_cat_terminal()
+    vime.toggle()
+
+    local m = vim.fn.maparg("a", "t", false, true)
+    assert.are.same({}, m)
+
+    vime.toggle()
+  end)
 end)

@@ -143,4 +143,18 @@ describe("vime end-to-end (cmdline)", function()
     local m = vim.fn.maparg("a", "c", false, true)
     assert.are.same({}, m)
   end)
+
+  it("does not attach vime's cmap when cmdline.enabled is false", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = false } })
+    vime.toggle()
+    -- CmdlineLeave は cmdline backend が張られていれば無条件に detach するため、leave 後の
+    -- maparg 確認では「そもそも attach されなかった」ことを区別できない。session 内で確認する。
+    local probed = probe_in_cmdline(":ab", function()
+      return { maparg_a = vim.fn.maparg("a", "c", false, true), line = vim.fn.getcmdline() }
+    end)
+    assert.are.same({}, probed.maparg_a)
+    -- typed ローマ字がそのまま cmdline へ残る(vime が横取りしていない)ことも確認する。
+    assert.are.equal("ab", probed.line)
+    vime.toggle()
+  end)
 end)
