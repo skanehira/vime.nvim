@@ -96,6 +96,9 @@ function M.show_popup(items, selected, pos)
     })
   )
   vim.wo[popup_win].winhighlight = "Normal:Pmenu" -- 通常のメニュー配色で表示
+  -- floating window の open/close は Lua マッピングの callback から呼ぶと自動では
+  -- 再描画されないことがある(実機で確認済み。特に cmdline/terminal-job モード中)。
+  vim.cmd("redraw")
   return popup_win
 end
 
@@ -103,6 +106,7 @@ end
 function M.close_popup()
   if popup_win and api.nvim_win_is_valid(popup_win) then
     api.nvim_win_close(popup_win, true)
+    vim.cmd("redraw")
   end
   popup_win = nil
 end
@@ -134,6 +138,7 @@ function M.show_mode_notify(label, duration_ms, pos)
     })
   )
   vim.wo[mode_notify_win].winhighlight = "Normal:VimeModeNotify"
+  vim.cmd("redraw") -- floating window の open は callback から呼ぶと自動再描画されないことがある
   local opened = mode_notify_win
   vim.defer_fn(function()
     -- defer_fn 発火時に同じ window がまだ生きていれば閉じる。
@@ -149,6 +154,7 @@ end
 function M.close_mode_notify()
   if mode_notify_win and api.nvim_win_is_valid(mode_notify_win) then
     api.nvim_win_close(mode_notify_win, true)
+    vim.cmd("redraw")
   end
   mode_notify_win = nil
 end
@@ -201,6 +207,7 @@ function M.show_preedit_float(view, pos)
       zindex = 220,
     })
   )
+  vim.cmd("redraw") -- floating window の open は callback から呼ぶと自動再描画されないことがある
   return preedit_float_win
 end
 
@@ -208,6 +215,7 @@ end
 function M.close_preedit_float()
   if preedit_float_win and api.nvim_win_is_valid(preedit_float_win) then
     api.nvim_win_close(preedit_float_win, true)
+    vim.cmd("redraw")
   end
   preedit_float_win = nil
 end

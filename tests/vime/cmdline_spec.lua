@@ -77,6 +77,48 @@ describe("vime end-to-end (cmdline)", function()
     vime.toggle()
   end)
 
+  -- cmdline はプレーン文字列のインライン表示だけでは下線が付けられない(extmark 不可)ため、
+  -- 変換前(composing)でも共有 preedit float に同じ内容を下線付きで併記し、通常バッファ/
+  -- terminal と同じ視認性を持たせる。
+  local function find_editor_relative_float()
+    for _, win in ipairs(api.nvim_list_wins()) do
+      local cfg = api.nvim_win_get_config(win)
+      if cfg.relative == "editor" then
+        return win
+      end
+    end
+    return nil
+  end
+
+  it("shows the shared preedit float with an underline while composing (before <Space>)", function()
+    vime.toggle()
+    local probed = probe_in_cmdline(":kyou", function()
+      local win = find_editor_relative_float()
+      if not win then
+        return { found = false }
+      end
+      local buf = api.nvim_win_get_buf(win)
+      local line = api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+      local marks = api.nvim_buf_get_extmarks(buf, require("vime.ui").namespace(), 0, -1, { details = true })
+      return { found = true, line = line, marks = marks }
+    end)
+    assert.is_true(probed.found, "変換前でも preedit float が出ているはず")
+    assert.are.equal("きょう", probed.line)
+    assert.are.equal(1, #probed.marks)
+    assert.are.equal("VimeUnconfirmed", probed.marks[1][4].hl_group)
+    vime.toggle()
+  end)
+
+  it("closes the preedit float once the preedit becomes empty (e.g. after backspacing it all)", function()
+    vime.toggle()
+    local probed = probe_in_cmdline(":k<BS>", function()
+      return { line = vim.fn.getcmdline(), float = find_editor_relative_float() }
+    end)
+    assert.are.equal("", probed.line)
+    assert.is_nil(probed.float, "未確定が空になったら preedit float も閉じるはず")
+    vime.toggle()
+  end)
+
   it("does not intercept the : / ? prefix, only what is typed after it", function()
     vime.toggle()
     local line = probe_in_cmdline("/kyou", function()
