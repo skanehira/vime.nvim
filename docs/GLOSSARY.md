@@ -31,6 +31,9 @@ vime.nvim の実装・ドキュメントで使う用語を統一する。コー�
 | モード             | mode                | 外向きのモード名 `direct`/`hiragana`/`ascii`。`vime.mode()` で取得。変換中は `hiragana`（state フィールドで細分） |
 | モード通知         | mode notify         | モード切替時にカーソル下へ短時間出る floating window のラベル popup                                               |
 | モード変化イベント | VimeModeChanged     | モード名(`mode().name`)が変わったときに発火する `User` autocmd。`data` に mode テーブル                           |
+| バックエンド       | backend              | session の状態をどこへどう反映するかの書込先抽象。`buffer`/`terminal`/`cmdline` の 3 種があり、同時にアタッチされるのは常に 1 つ                        |
+| terminal-job モード | Terminal-mode / "t" | terminal バッファでシェル等のジョブへキー入力が直接送られる Vim 組み込みのモード。Vim 組み込みの `mode()`（`:help mode()`。vime の `vime.mode()` とは別物）は `"t"` を返す |
+| プリエディット float | preedit float       | `terminal`/`cmdline` backend が使う、未確定・変換中の文節状態を表示する共有 floating window（`ui.show_preedit_float`） |
 
 ## 状態の呼称
 
