@@ -187,10 +187,45 @@ local function draw_preedit_view(buf, row, view)
   end
 end
 
--- terminal/cmdline backend が使う共有 preedit float。session:preedit_segments() の
+-- terminal backend が使う inline preedit。terminal buffer は直接編集できないため、
+-- カーソル位置(row/col は 0-based byte)に inline virtual text の extmark を 1 つ置いて
+-- 未確定を表示する(通常バッファと同じ下線・文節反転の見た目。virt_text は PTY へ
+-- 送られない)。view が空になったら extmark を消す。呼ぶたびに前回の extmark を消して
+-- 置き直す。
+function M.show_inline_preedit(buf, row, col, view)
+  api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  local chunks = {}
+  for _, seg in ipairs(view) do
+    if seg.kind == "segments" then
+      for i, text in ipairs(seg.list) do
+        chunks[#chunks + 1] = { text, (i == seg.current) and "VimeSegment" or "VimeUnconfirmed" }
+      end
+    elseif seg.kind == "confirmed" then
+      if #seg.text > 0 then
+        chunks[#chunks + 1] = { seg.text }
+      end
+    else -- kana / latin
+      if #seg.text > 0 then
+        chunks[#chunks + 1] = { seg.text, "VimeUnconfirmed" }
+      end
+    end
+  end
+  if #chunks > 0 then
+    -- strict=false: PTY 出力とタイミングが競合して col が行末を超えても
+    -- エラーにせずクランプする("Vim を壊さない"方針)。
+    api.nvim_buf_set_extmark(buf, ns, row, col, {
+      virt_text = chunks,
+      virt_text_pos = "inline",
+      strict = false,
+    })
+  end
+  vim.cmd("redraw") -- terminal-job モードのマッピング callback からは自動再描画されないことがある
+end
+
+-- cmdline backend が使う preedit float。session:preedit_segments() の
 -- view をそのまま渡すと、下線・文節反転込みで 1 行の floating window に描画する。
--- pos で配置(relative/row/col 等)を指定する(terminal はカーソル直上、cmdline は
--- cmdline 行の直上を想定)。呼ぶたびに前回の float を閉じて開き直す。win id を返す。
+-- pos で配置(relative/row/col 等)を指定する(cmdline 行の直上を想定)。
+-- 呼ぶたびに前回の float を閉じて開き直す。win id を返す。
 function M.show_preedit_float(view, pos)
   M.close_preedit_float()
   local buf = api.nvim_create_buf(false, true)

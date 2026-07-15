@@ -1,7 +1,8 @@
 -- terminal バッファ(terminal-job モード)用の backend。
--- 未確定はバッファへ書かず、カーソル直上の preedit float(ui.show_preedit_float)にのみ表示する。
--- 確定テキストは send(既定は chansend)で PTY へ送る。completion/register_word/dot_repeat は
--- 対応しない(vim.ui.input の入れ子・Vim の insert モード前提の dot repeat が terminal-job
+-- 未確定はバッファへ書かず、カーソル位置の inline virtual text(ui.show_inline_preedit)で
+-- 通常バッファと同じ見た目(下線・文節反転)に表示する。確定テキストは send(既定は
+-- chansend)で PTY へ送る。completion/register_word/dot_repeat は対応しない
+-- (vim.ui.input の入れ子・Vim の insert モード前提の dot repeat が terminal-job
 -- モードには存在しないため)。
 local ui = require("vime.ui")
 
@@ -36,15 +37,18 @@ end
 -- preedit はバッファ上に anchor を持たないので no-op。
 function M:sync_anchor() end
 
--- カーソル直上の preedit float へ描画する(実際のバッファへは書かない)。
+-- カーソル位置の inline virtual text へ描画する(実際のバッファへは書かない)。
+-- render はキー入力のマッピング callback から呼ばれ、そのときのカレントウィンドウは
+-- 必ず self.buf を表示している(terminal-job モード中)ので、カーソルはカレント
+-- ウィンドウから取る。
 function M:render(view)
-  ui.show_preedit_float(view, self:popup_pos())
+  local pos = vim.api.nvim_win_get_cursor(0)
+  ui.show_inline_preedit(self.buf, pos[1] - 1, pos[2], view)
 end
 
--- 下線/文節反転は無い(float ごと閉じる)ので popup だけ掃除する。
+-- inline preedit(extmark)と popup を掃除する。
 function M:clear()
-  ui.close_preedit_float()
-  ui.close_popup()
+  ui.clear(self.buf)
 end
 
 -- 確定テキストを send() で PTY へ送る。空文字は何もしない。
@@ -64,6 +68,8 @@ function M:passthrough(key)
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "n", false)
 end
 
+-- 候補 popup・モード通知は通常バッファと同じくカーソル直下に出す
+-- (未確定は inline virtual text でカーソル位置に表示されるので隠れない)。
 function M:popup_pos()
   return { relative = "cursor", row = 1, col = 0 }
 end
