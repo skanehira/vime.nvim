@@ -155,6 +155,4 @@ function M:popup_pos()
   return { relative = "cursor", row = 1, col = 0 }
 end
 
-function M:detach() end
-
 return M

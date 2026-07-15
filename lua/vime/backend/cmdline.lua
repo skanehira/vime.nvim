@@ -106,8 +106,4 @@ function M:popup_pos()
   return { relative = "editor", row = math.max(0, vim.o.lines - vim.o.cmdheight - 1), col = 0, anchor = "NW" }
 end
 
-function M:detach()
-  ui.close_preedit_float()
-end
-
 return M

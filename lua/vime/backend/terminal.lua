@@ -71,8 +71,4 @@ end
 -- 実バッファへカーソルを置く概念が無いので no-op。
 function M:place_cursor() end
 
-function M:detach()
-  ui.close_preedit_float()
-end
-
 return M
