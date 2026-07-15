@@ -187,7 +187,7 @@ local function select_completion(delta)
   st.completion.index = (st.completion.index + delta) % (#items + 1)
   local idx = st.completion.index
   local text = idx == 0 and st.session:preedit() or items[idx].text
-  ui.clear(st.backend.buf) -- 旧範囲の下線と popup を消す(popup は直後に開き直す)
+  st.backend:clear() -- 旧範囲の下線と popup を消す(popup は直後に開き直す)
   set_region_text(text)
   ui.highlight_preedit(st.backend.buf, st.backend.row, st.backend.start_col, #text)
   show_candidate_window(completion_texts(), idx ~= 0 and idx or nil)
@@ -202,7 +202,7 @@ local function commit_completion_selection()
     return false
   end
   st.session:commit_completion(items[st.completion.index])
-  ui.clear(st.backend.buf) -- 下線と popup を消す(確定テキストはインライン置換済みのまま残す)
+  st.backend:clear() -- 下線と popup を消す(確定テキストはインライン置換済みのまま残す)
   st.backend.start_col = st.backend.start_col + st.backend.len
   st.backend.len = 0
   reset_completion()
@@ -210,36 +210,11 @@ local function commit_completion_selection()
   return true
 end
 
--- 現在の session 状態をバッファ＋ハイライトへ反映する。popup は開いていれば追従表示する。
--- セグメント混在(kana/latin/confirmed/converting 中の注目 kana)を順番に描く。
+-- 現在の session 状態を backend の描画先(バッファ or preedit float)へ反映する。
+-- popup は開いていれば追従表示する。
 local function render()
-  ui.clear(st.backend.buf)
-  local s = st.session
-  local view = s:preedit_segments()
-  -- 1. プリエディット文字列を組み立ててバッファへ書き込み
-  local parts = {}
-  for _, seg in ipairs(view) do
-    parts[#parts + 1] = (seg.kind == "segments") and table.concat(seg.list) or seg.text
-  end
-  set_region_text(table.concat(parts))
-  -- 2. 各セグメントを byte offset で進めながらハイライト
-  --    未変換 kana と latin は同じ下線(VimeUnconfirmed)。confirmed はハイライトなし。
-  local off = st.backend.start_col
-  for _, seg in ipairs(view) do
-    if seg.kind == "kana" or seg.kind == "latin" then
-      if #seg.text > 0 then
-        ui.highlight_preedit(st.backend.buf, st.backend.row, off, #seg.text)
-      end
-      off = off + #seg.text
-    elseif seg.kind == "confirmed" then
-      off = off + #seg.text -- 確定済みはハイライトなし
-    elseif seg.kind == "segments" then
-      ui.highlight_segments(st.backend.buf, st.backend.row, off, seg.list, seg.current)
-      for _, t in ipairs(seg.list) do
-        off = off + #t
-      end
-    end
-  end
+  st.backend:clear()
+  st.backend:render(st.session:preedit_segments())
   if st.popup_open then
     open_popup_window()
   end
@@ -254,7 +229,7 @@ end
 local function finalize(text)
   reset_completion() -- 補完 popup と選択状態はどの確定経路でも破棄する
   st.backend:finalize(text)
-  ui.clear(st.backend.buf)
+  st.backend:clear()
   st.popup_open = false
   sync_converting_keymap()
 end
@@ -462,7 +437,7 @@ function M.on_insert_leave()
   local s = st.session
   if s and (s:state() == "converting" or s:preedit() ~= "") then
     s:commit() -- 変換中なら学習。確定テキストは既にバッファにあるので残す
-    ui.clear(st.backend.buf)
+    st.backend:clear()
     st.backend.len = 0
   end
   st.popup_open = false
@@ -611,7 +586,7 @@ function M.commit_completion(item)
     return
   end
   st.session:commit_completion(item)
-  ui.clear(st.backend.buf)
+  st.backend:clear()
   st.backend.len = 0
   st.popup_open = false
   st.last_preedit_key = nil -- 同じ読みを再入力したときに再通知されるようリセット
@@ -666,7 +641,7 @@ local function attach_to_current_buf()
     -- 旧バッファが wipe 済みなら Vim 側で buffer-local maps は既に消えているので
     -- detach を呼ばない(~104 回の vim.keymap.del を節約)。
     if api.nvim_buf_is_valid(st.backend.buf) then
-      ui.clear(st.backend.buf)
+      st.backend:clear()
       keymap.detach(st.backend.buf)
     end
     st.converting_keys_attached = false
@@ -703,7 +678,7 @@ local function disable()
     finalize(s:commit())
   end
   if valid then
-    ui.clear(st.backend.buf)
+    st.backend:clear()
     keymap.detach(st.backend.buf) -- 共通・converting/補完限定マップをすべて掃除する
   end
   st.enabled = false

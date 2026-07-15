@@ -4,6 +4,7 @@
 -- 挙動は init.lua の旧実装(set_region_text/sync_anchor/place_cursor/finalize/insert_literal)
 -- をそのまま移設したもので、変更は一切ない。
 local api = vim.api
+local ui = require("vime.ui")
 
 ---@class vime.BufferBackend
 ---@field kind "buffer"
@@ -54,6 +55,37 @@ end
 
 function M:place_cursor()
   api.nvim_win_set_cursor(0, { self.row + 1, self.start_col + self.len })
+end
+
+-- session:preedit_segments() の view をバッファへ描画する。未変換 kana/latin は下線、
+-- confirmed はハイライトなし、converting 中の文節列(segments)は注目文節を反転する。
+function M:render(view)
+  local parts = {}
+  for _, seg in ipairs(view) do
+    parts[#parts + 1] = (seg.kind == "segments") and table.concat(seg.list) or seg.text
+  end
+  self:set_region_text(table.concat(parts))
+  local off = self.start_col
+  for _, seg in ipairs(view) do
+    if seg.kind == "kana" or seg.kind == "latin" then
+      if #seg.text > 0 then
+        ui.highlight_preedit(self.buf, self.row, off, #seg.text)
+      end
+      off = off + #seg.text
+    elseif seg.kind == "confirmed" then
+      off = off + #seg.text -- 確定済みはハイライトなし
+    elseif seg.kind == "segments" then
+      ui.highlight_segments(self.buf, self.row, off, seg.list, seg.current)
+      for _, t in ipairs(seg.list) do
+        off = off + #t
+      end
+    end
+  end
+end
+
+-- 下線/文節反転の extmark と候補 popup を消す。
+function M:clear()
+  ui.clear(self.buf)
 end
 
 -- 挿入モード中か。確定テキストの挿入経路(feedkeys か API か)を分岐するのに使う。
