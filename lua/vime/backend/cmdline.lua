@@ -99,9 +99,24 @@ function M:passthrough(key)
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "n", false)
 end
 
--- 候補 popup・文節状態 float は cmdline 行の直上に editor 相対で出す。
+-- laststatus に応じてステータスライン行が実際に表示されるか判定する。
+-- 2/3: 常時表示。1: ウィンドウが複数あるときだけ表示。0: 非表示。
+local function statusline_visible()
+  local ls = vim.o.laststatus
+  if ls == 2 or ls == 3 then
+    return true
+  end
+  if ls == 1 then
+    return #vim.api.nvim_list_wins() > 1
+  end
+  return false
+end
+
+-- 候補 popup・文節状態 float は cmdline 行の直上に editor 相対で出す。ステータスライン
+-- が表示されている環境ではその行と重なってしまうため、その分もう 1 行上げる。
 function M:popup_pos()
-  return { relative = "editor", row = math.max(0, vim.o.lines - vim.o.cmdheight - 1), col = 0, anchor = "NW" }
+  local reserved = statusline_visible() and 2 or 1
+  return { relative = "editor", row = math.max(0, vim.o.lines - vim.o.cmdheight - reserved), col = 0, anchor = "NW" }
 end
 
 return M

@@ -58,6 +58,46 @@ describe("vime.backend.cmdline", function()
     assert.are.equal("ab今日", result.line)
     assert.are.equal(0, result.len)
   end)
+
+  describe("popup_pos", function()
+    local saved_laststatus
+
+    before_each(function()
+      saved_laststatus = vim.o.laststatus
+    end)
+
+    after_each(function()
+      vim.o.laststatus = saved_laststatus
+    end)
+
+    it("places the float directly above the cmdline when there is no statusline row", function()
+      vim.o.laststatus = 0
+      local b = backend_cmdline.new(api.nvim_get_current_buf())
+      local pos = b:popup_pos()
+      assert.are.equal(vim.o.lines - vim.o.cmdheight - 1, pos.row)
+    end)
+
+    it("places the float one row higher to avoid a global statusline (laststatus=3)", function()
+      vim.o.laststatus = 3
+      local b = backend_cmdline.new(api.nvim_get_current_buf())
+      local pos = b:popup_pos()
+      assert.are.equal(vim.o.lines - vim.o.cmdheight - 2, pos.row)
+    end)
+
+    it("places the float one row higher when laststatus=2 (always show, per window)", function()
+      vim.o.laststatus = 2
+      local b = backend_cmdline.new(api.nvim_get_current_buf())
+      local pos = b:popup_pos()
+      assert.are.equal(vim.o.lines - vim.o.cmdheight - 2, pos.row)
+    end)
+
+    it("does not reserve a statusline row for laststatus=1 with a single window", function()
+      vim.o.laststatus = 1
+      local b = backend_cmdline.new(api.nvim_get_current_buf())
+      local pos = b:popup_pos()
+      assert.are.equal(vim.o.lines - vim.o.cmdheight - 1, pos.row)
+    end)
+  end)
 end)
 
 describe("vime end-to-end (cmdline)", function()
