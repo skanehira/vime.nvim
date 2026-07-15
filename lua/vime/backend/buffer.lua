@@ -12,8 +12,10 @@ local ui = require("vime.ui")
 ---@field row integer
 ---@field start_col integer
 ---@field len integer
+---@field keymap_mode "i"
 local M = {}
 M.kind = "buffer"
+M.keymap_mode = "i"
 
 local FEATURES = { completion = true, register_word = true, dot_repeat = true }
 

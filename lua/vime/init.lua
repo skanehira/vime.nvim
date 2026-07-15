@@ -8,6 +8,7 @@ local ui = require("vime.ui")
 local keymap = require("vime.keymap")
 local mode = require("vime.mode")
 local backend_buffer = require("vime.backend.buffer")
+local backend_terminal = require("vime.backend.terminal")
 
 local api = vim.api
 local M = {}
@@ -44,8 +45,8 @@ local st = {
   anthy_ok = false,
   enabled = false,
   session = nil,
-  ---@type vime.BufferBackend?
-  backend = nil, -- 書込先 backend(現状は buffer backend のみ。buf/row/start_col/len を保持)
+  ---@type vime.BufferBackend|vime.TerminalBackend|nil
+  backend = nil, -- 書込先 backend(buffer/terminal)。buf と keymap_mode を持つ
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
   last_preedit_key = nil, -- 直近通知した preedit の状態キー(VimePreeditChanged の変化検出)
@@ -69,10 +70,10 @@ local function sync_converting_keymap()
   end
   local converting = st.session and st.session:state() == "converting"
   if converting and not st.converting_keys_attached then
-    keymap.attach_converting(st.backend.buf, st.cfg, handlers())
+    keymap.attach_converting(st.backend.buf, st.cfg, handlers(), st.backend.keymap_mode)
     st.converting_keys_attached = true
   elseif not converting and st.converting_keys_attached then
-    keymap.detach_converting(st.backend.buf)
+    keymap.detach_converting(st.backend.buf, st.backend.keymap_mode)
     st.converting_keys_attached = false
   end
 end
@@ -135,10 +136,10 @@ local function sync_completion_keymap()
   end
   local open = st.completion.items ~= nil
   if open and not st.completion_keys_attached then
-    keymap.attach_completion(st.backend.buf, st.cfg, handlers())
+    keymap.attach_completion(st.backend.buf, st.cfg, handlers(), st.backend.keymap_mode)
     st.completion_keys_attached = true
   elseif not open and st.completion_keys_attached then
-    keymap.detach_completion(st.backend.buf)
+    keymap.detach_completion(st.backend.buf, st.backend.keymap_mode)
     st.completion_keys_attached = false
   end
 end
@@ -161,12 +162,15 @@ local function completion_texts()
 end
 
 -- composing 中の未確定に対する補完候補を(再)計算して popup を出す。
--- 候補が無い状態(未確定なし・英字ラン・変換中など)なら閉じる。
+-- 候補が無い状態(未確定なし・英字ラン・変換中など)なら閉じる。backend が completion に
+-- 対応しない(terminal/cmdline)場合は常に閉じる(vim.ui.input の入れ子等を避けるため)。
 local function refresh_completion()
   if not st.cfg.completion.enabled then
     return
   end
-  local items = (st.enabled and st.session:state() == "composing") and st.session:completion_candidates() or {}
+  local items = (st.enabled and st.backend.supports("completion") and st.session:state() == "composing")
+      and st.session:completion_candidates()
+    or {}
   if #items == 0 then
     reset_completion()
     return
@@ -422,6 +426,7 @@ function M.on_insert_leave()
   if
     not (
       st.backend
+      and st.backend.kind == "buffer" -- terminal-job モードは InsertLeave ではなく TermLeave(on_term_leave)で扱う
       and api.nvim_buf_is_valid(st.backend.buf)
       and api.nvim_get_current_buf() == st.backend.buf
     )
@@ -441,6 +446,30 @@ function M.on_insert_leave()
     st.backend.len = 0
   end
   st.popup_open = false
+end
+
+-- terminal-job モードを抜けるとき: 未確定/変換中を「破棄」する(commit しない)。
+-- on_insert_leave とは非対称にあえてこうしている: leave しただけで確定テキストが
+-- PTY(シェル)へ送られてしまうのを避けるため。
+function M.on_term_leave()
+  if not st.enabled then
+    return
+  end
+  if
+    not (
+      st.backend
+      and st.backend.kind == "terminal"
+      and api.nvim_buf_is_valid(st.backend.buf)
+      and api.nvim_get_current_buf() == st.backend.buf
+    )
+  then
+    return
+  end
+  reset_completion()
+  st.session:clear()
+  st.backend:clear()
+  st.popup_open = false
+  sync_converting_keymap() -- converting 限定キーが張られていれば外す
 end
 
 function M.on_next_segment()
@@ -504,6 +533,9 @@ function M.on_register_word()
   if not st.enabled or st.session:state() ~= "converting" then
     return
   end
+  if not st.backend.supports("register_word") then
+    return -- terminal/cmdline: vim.ui.input の入れ子を避けるため対応しない
+  end
   local yomi = st.session:current_segment_yomi()
   if not yomi or yomi == "" then
     return
@@ -556,7 +588,12 @@ end
 -- enabled() から高頻度で呼ばれうるため、候補生成はせず軽量に判定する。
 function M.completion_active()
   local s = st.session
-  return st.enabled and s ~= nil and s:state() == "composing" and s:preedit() ~= ""
+  return st.enabled
+    and s ~= nil
+    and st.backend ~= nil
+    and st.backend.supports("completion")
+    and s:state() == "composing"
+    and s:preedit() ~= ""
 end
 
 -- 補完コンテキスト。候補が無ければ nil。cmp source の complete から呼ばれる(候補生成を伴う重い経路)。
@@ -632,29 +669,55 @@ handlers = function()
   }
 end
 
--- IME ターゲットを現在のバッファに合わせる。
--- 旧バッファのマッピング・extmark を掃除し、新バッファに keymap を attach、
--- カーソル位置を再アンカーする。enable() と InsertEnter autocmd の両方から呼ばれる。
-local function attach_to_current_buf()
-  local new_buf = api.nvim_get_current_buf()
-  if st.backend and st.backend.buf ~= new_buf then
+-- IME ターゲットを new_backend に切り替える。旧 backend のマッピング・描画を掃除し、
+-- new_backend の keymap を attach する。attach_to_current_buf()/attach_to_terminal_buf()
+-- の共通処理。
+local function switch_backend(new_backend)
+  if st.backend and st.backend.buf ~= new_backend.buf then
     -- 旧バッファが wipe 済みなら Vim 側で buffer-local maps は既に消えているので
     -- detach を呼ばない(~104 回の vim.keymap.del を節約)。
     if api.nvim_buf_is_valid(st.backend.buf) then
       st.backend:clear()
-      keymap.detach(st.backend.buf)
+      keymap.detach(st.backend.buf, st.backend.keymap_mode)
     end
     st.converting_keys_attached = false
     st.completion_keys_attached = false
   end
-  st.backend = backend_buffer.new(new_buf)
-  local cur = api.nvim_win_get_cursor(0)
-  st.backend.row = cur[1] - 1
-  st.backend.start_col = cur[2]
+  st.backend = new_backend
   st.popup_open = false
   st.completion.items = nil
   st.completion.index = 0
-  keymap.attach(st.backend.buf, st.cfg, handlers())
+  keymap.attach(st.backend.buf, st.cfg, handlers(), st.backend.keymap_mode)
+end
+
+-- IME ターゲットを現在のバッファ(通常バッファ + 挿入モード)に合わせる。
+-- enable() と InsertEnter autocmd の両方から呼ばれる。
+local function attach_to_current_buf()
+  local new_buf = api.nvim_get_current_buf()
+  local b = backend_buffer.new(new_buf)
+  local cur = api.nvim_win_get_cursor(0)
+  b.row = cur[1] - 1
+  b.start_col = cur[2]
+  switch_backend(b)
+end
+
+-- IME ターゲットを terminal バッファ(terminal-job モード)に合わせる。
+-- enable() と TermEnter autocmd の両方から呼ばれる。
+local function attach_to_terminal_buf(buf)
+  switch_backend(backend_terminal.new(buf))
+end
+
+-- 現在のバッファが terminal バッファかどうかに応じて buffer/terminal backend の
+-- どちらを張るか決める。terminal-job モードへ実際に入っていなくても(Normal モードで
+-- terminal バッファ上にいるだけでも)terminal backend を張ってよい: "t" モードの
+-- キーマップは実際に terminal-job モードへ入って初めて効くので害はない。
+local function attach_to_current_context()
+  local cur_buf = api.nvim_get_current_buf()
+  if vim.bo[cur_buf].buftype == "terminal" then
+    attach_to_terminal_buf(cur_buf)
+  else
+    attach_to_current_buf()
+  end
 end
 
 local function enable()
@@ -663,7 +726,7 @@ local function enable()
     ascii_toggle = st.cfg.keymaps.ascii_toggle,
     romaji_table = st.cfg.romaji.table,
   })
-  attach_to_current_buf()
+  attach_to_current_context()
 end
 
 local function disable()
@@ -679,7 +742,7 @@ local function disable()
   end
   if valid then
     st.backend:clear()
-    keymap.detach(st.backend.buf) -- 共通・converting/補完限定マップをすべて掃除する
+    keymap.detach(st.backend.buf, st.backend.keymap_mode) -- 共通・converting/補完限定マップをすべて掃除する
   end
   st.enabled = false
   st.session = nil
@@ -740,6 +803,7 @@ local NOTIFY_TARGETS = {
   "on_kill",
   "on_register_word",
   "on_insert_leave",
+  "on_term_leave",
   "toggle",
 }
 for _, name in ipairs(NOTIFY_TARGETS) do
@@ -761,6 +825,7 @@ function M.setup(opts)
     vim.notify(M.install_hint(), vim.log.levels.WARN)
   end
   vim.keymap.set("i", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input" })
+  vim.keymap.set("t", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input (terminal)" })
 
   -- 挿入モードを抜けたら未確定を確定する(ノーマルモード編集を安全にする)
   local group = api.nvim_create_augroup("vime", { clear = true })
@@ -774,7 +839,8 @@ function M.setup(opts)
   -- IME ON のままユーザーが別バッファで挿入モードに入ったら、IME ターゲットを
   -- その新バッファへ追従させる。BufEnter は telescope プレビュー等で大量発火する
   -- ため避け、本当に編集を開始する瞬間(InsertEnter)に絞っている。
-  -- terminal/prompt buftype は IME が握ると UX が壊れるので除外する。
+  -- terminal バッファは InsertEnter ではなく TermEnter(terminal-job モード)で扱う。
+  -- prompt buftype は IME が握ると UX が壊れるので除外する。
   api.nvim_create_autocmd("InsertEnter", {
     group = group,
     desc = "vime: follow buffer switches",
@@ -790,6 +856,30 @@ function M.setup(opts)
         return
       end
       attach_to_current_buf()
+    end,
+  })
+
+  -- IME ON のまま terminal-job モードへ入ったら、IME ターゲットをその terminal バッファへ
+  -- 追従させる(InsertEnter の terminal 版)。
+  api.nvim_create_autocmd("TermEnter", {
+    group = group,
+    desc = "vime: follow terminal-job mode",
+    callback = function(args)
+      if not st.enabled then
+        return
+      end
+      if st.backend and args.buf == st.backend.buf then
+        return
+      end
+      attach_to_terminal_buf(args.buf)
+    end,
+  })
+
+  -- terminal-job モードを抜けたら未確定を破棄する(InsertLeave とは非対称。M.on_term_leave 参照)。
+  api.nvim_create_autocmd("TermLeave", {
+    group = group,
+    callback = function()
+      M.on_term_leave()
     end,
   })
 
