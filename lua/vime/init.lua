@@ -7,6 +7,7 @@ local session = require("vime.session")
 local ui = require("vime.ui")
 local keymap = require("vime.keymap")
 local mode = require("vime.mode")
+local backend_buffer = require("vime.backend.buffer")
 
 local api = vim.api
 local M = {}
@@ -43,10 +44,8 @@ local st = {
   anthy_ok = false,
   enabled = false,
   session = nil,
-  buf = nil,
-  row = 0,
-  start_col = 0, -- 未確定領域の開始 byte 列
-  len = 0, -- 未確定領域の byte 長
+  ---@type vime.BufferBackend?
+  backend = nil, -- 書込先 backend(現状は buffer backend のみ。buf/row/start_col/len を保持)
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
   last_preedit_key = nil, -- 直近通知した preedit の状態キー(VimePreeditChanged の変化検出)
@@ -70,10 +69,10 @@ local function sync_converting_keymap()
   end
   local converting = st.session and st.session:state() == "converting"
   if converting and not st.converting_keys_attached then
-    keymap.attach_converting(st.buf, st.cfg, handlers())
+    keymap.attach_converting(st.backend.buf, st.cfg, handlers())
     st.converting_keys_attached = true
   elseif not converting and st.converting_keys_attached then
-    keymap.detach_converting(st.buf)
+    keymap.detach_converting(st.backend.buf)
     st.converting_keys_attached = false
   end
 end
@@ -81,28 +80,16 @@ end
 -- 未確定が無い(idle)ときは実カーソル位置へ再アンカーする。
 -- 確定後やユーザーの直接編集(Backspace 等)でズレた start_col を healing する。
 local function sync_anchor()
-  if st.len == 0 then
-    local cur = api.nvim_win_get_cursor(0)
-    st.row = cur[1] - 1
-    st.start_col = cur[2]
-  end
+  st.backend:sync_anchor()
 end
 
 -- 未確定領域のテキストを置き換える。範囲は行長へクランプし、IME が挿入モードを壊さないようにする。
 local function set_region_text(text)
-  if not (st.buf and api.nvim_buf_is_valid(st.buf)) then
-    return
-  end
-  local line = api.nvim_buf_get_lines(st.buf, st.row, st.row + 1, false)[1] or ""
-  local s = math.min(st.start_col, #line)
-  local e = math.min(st.start_col + st.len, #line)
-  api.nvim_buf_set_text(st.buf, st.row, s, st.row, e, { text })
-  st.start_col = s
-  st.len = #text
+  st.backend:set_region_text(text)
 end
 
 local function place_cursor()
-  api.nvim_win_set_cursor(0, { st.row + 1, st.start_col + st.len })
+  st.backend:place_cursor()
 end
 
 -- 候補一覧 popup を(再)表示する。選択中(sel、nil なら先頭基準・ハイライトなし)を含む
@@ -148,10 +135,10 @@ local function sync_completion_keymap()
   end
   local open = st.completion.items ~= nil
   if open and not st.completion_keys_attached then
-    keymap.attach_completion(st.buf, st.cfg, handlers())
+    keymap.attach_completion(st.backend.buf, st.cfg, handlers())
     st.completion_keys_attached = true
   elseif not open and st.completion_keys_attached then
-    keymap.detach_completion(st.buf)
+    keymap.detach_completion(st.backend.buf)
     st.completion_keys_attached = false
   end
 end
@@ -200,9 +187,9 @@ local function select_completion(delta)
   st.completion.index = (st.completion.index + delta) % (#items + 1)
   local idx = st.completion.index
   local text = idx == 0 and st.session:preedit() or items[idx].text
-  ui.clear(st.buf) -- 旧範囲の下線と popup を消す(popup は直後に開き直す)
+  ui.clear(st.backend.buf) -- 旧範囲の下線と popup を消す(popup は直後に開き直す)
   set_region_text(text)
-  ui.highlight_preedit(st.buf, st.row, st.start_col, #text)
+  ui.highlight_preedit(st.backend.buf, st.backend.row, st.backend.start_col, #text)
   show_candidate_window(completion_texts(), idx ~= 0 and idx or nil)
   place_cursor()
 end
@@ -215,9 +202,9 @@ local function commit_completion_selection()
     return false
   end
   st.session:commit_completion(items[st.completion.index])
-  ui.clear(st.buf) -- 下線と popup を消す(確定テキストはインライン置換済みのまま残す)
-  st.start_col = st.start_col + st.len
-  st.len = 0
+  ui.clear(st.backend.buf) -- 下線と popup を消す(確定テキストはインライン置換済みのまま残す)
+  st.backend.start_col = st.backend.start_col + st.backend.len
+  st.backend.len = 0
   reset_completion()
   place_cursor()
   return true
@@ -226,7 +213,7 @@ end
 -- 現在の session 状態をバッファ＋ハイライトへ反映する。popup は開いていれば追従表示する。
 -- セグメント混在(kana/latin/confirmed/converting 中の注目 kana)を順番に描く。
 local function render()
-  ui.clear(st.buf)
+  ui.clear(st.backend.buf)
   local s = st.session
   local view = s:preedit_segments()
   -- 1. プリエディット文字列を組み立ててバッファへ書き込み
@@ -237,17 +224,17 @@ local function render()
   set_region_text(table.concat(parts))
   -- 2. 各セグメントを byte offset で進めながらハイライト
   --    未変換 kana と latin は同じ下線(VimeUnconfirmed)。confirmed はハイライトなし。
-  local off = st.start_col
+  local off = st.backend.start_col
   for _, seg in ipairs(view) do
     if seg.kind == "kana" or seg.kind == "latin" then
       if #seg.text > 0 then
-        ui.highlight_preedit(st.buf, st.row, off, #seg.text)
+        ui.highlight_preedit(st.backend.buf, st.backend.row, off, #seg.text)
       end
       off = off + #seg.text
     elseif seg.kind == "confirmed" then
       off = off + #seg.text -- 確定済みはハイライトなし
     elseif seg.kind == "segments" then
-      ui.highlight_segments(st.buf, st.row, off, seg.list, seg.current)
+      ui.highlight_segments(st.backend.buf, st.backend.row, off, seg.list, seg.current)
       for _, t in ipairs(seg.list) do
         off = off + #t
       end
@@ -260,69 +247,31 @@ local function render()
   sync_converting_keymap()
 end
 
--- 挿入モード中か。確定テキストの挿入経路(feedkeys か API か)を分岐するのに使う。
-local function in_insert_mode()
-  return api.nvim_get_mode().mode:sub(1, 1) == "i"
-end
-
--- 未確定領域を確定テキストで置き換える。
--- 挿入モード中は「preedit を API で消し、確定テキストを feedkeys でタイプ入力として流す」。
--- これで native の redo に確定テキストが載り、dot repeat(`.`)・count(`3.`)・オペレータ合成
--- (`ciw…<Esc>` の `.`)が Vim 本来の動作で効く。挿入経路が非同期になるので start_col は
--- 進めず、place_cursor もしない。fed テキスト挿入後の実カーソル位置へ次のハンドラの
--- sync_anchor が再アンカーする(len==0 なので効く)。
--- 非挿入モード(direct handler 呼び出し・disable 等)は従来どおり API で置換する。
+-- 未確定領域を確定テキストで置き換える。実際の挿入経路(feedkeys か API か)は
+-- backend:finalize() が判断する(buffer backend は挿入モード中なら native の redo に
+-- 確定テキストを載せる feedkeys 経路、それ以外は API 置換経路)。ここでは
+-- どの経路でも共通の UI 掃除(popup/completion/ハイライト)だけを行う。
 local function finalize(text)
   reset_completion() -- 補完 popup と選択状態はどの確定経路でも破棄する
-  if in_insert_mode() then
-    set_region_text("") -- preedit を API で削除(redo には載せない)
-    ui.clear(st.buf)
-    st.popup_open = false
-    st.len = 0
-    sync_converting_keymap()
-    -- text と <C-G>u を 1 回の feedkeys にまとめて順序を保証する(別々に "i" で feed すると
-    -- 後発が前へ割り込み順序が逆転する)。"i"=typeahead 先頭挿入で後続 <Esc> より先に処理、
-    -- "n"=remap 無効(確定テキストが ASCII の F10 "foo" 等でも vime マッピングに再入しない)、
-    -- escape_ks=true=UTF-8 継続バイト 0x80(「む」等)の K_SPECIAL 衝突回避。
-    api.nvim_feedkeys(text .. api.nvim_replace_termcodes("<C-G>u", true, false, true), "in", true)
-  else
-    set_region_text(text)
-    ui.clear(st.buf)
-    st.popup_open = false
-    st.start_col = st.start_col + #text
-    st.len = 0
-    place_cursor()
-    sync_converting_keymap()
-  end
+  st.backend:finalize(text)
+  ui.clear(st.backend.buf)
+  st.popup_open = false
+  sync_converting_keymap()
 end
 
 -- 未確定が無いときに通常のスペース/改行をカーソル位置へ挿入する(素通し)。
--- 挿入モード中は feedkeys でタイプ入力として流し(redo に載せて dot repeat に含める)、
--- "n" で Space/CR マッピングへの再入を防ぐ。<C-G>u は積まない(IME 確定ではないので
--- Vim 標準の 1 ブロック挙動を維持する)。非挿入モードは従来どおり API で挿入する。
 local function insert_literal(text)
-  if not (st.buf and api.nvim_buf_is_valid(st.buf)) then
-    return
-  end
-  if in_insert_mode() then
-    local keys = (text == "\n") and api.nvim_replace_termcodes("<CR>", true, false, true) or text
-    api.nvim_feedkeys(keys, "in", true)
-    return
-  end
-  local cur = api.nvim_win_get_cursor(0)
-  local row0, col = cur[1] - 1, cur[2]
-  if text == "\n" then
-    api.nvim_buf_set_text(st.buf, row0, col, row0, col, { "", "" })
-    api.nvim_win_set_cursor(0, { cur[1] + 1, 0 })
-  else
-    api.nvim_buf_set_text(st.buf, row0, col, row0, col, { text })
-    api.nvim_win_set_cursor(0, { cur[1], col + #text })
-  end
+  st.backend:insert_literal(text)
 end
 
 ----------------------------------------------------------------------
 -- ハンドラ(keymap からディスパッチされる)
 ----------------------------------------------------------------------
+
+-- 挿入モード中か。on_input の feedkeys 経路分岐に使う(backend:finalize 内の分岐と同じ判定)。
+local function in_insert_mode()
+  return api.nvim_get_mode().mode:sub(1, 1) == "i"
+end
 
 -- ch を session:input に流すと確定が起きるか。
 -- converting 中は任意の文字が現在の変換を確定させる。composing 中は「大文字始まりで
@@ -427,7 +376,7 @@ function M.on_completion_cancel()
     M.on_cancel()
     return
   end
-  api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+  st.backend:passthrough("<Esc>")
 end
 
 function M.on_backspace()
@@ -441,7 +390,7 @@ function M.on_backspace()
   end
   if st.session:state() == "composing" and st.session:preedit() == "" then
     -- 未確定なし: 通常の BS として素通し
-    api.nvim_feedkeys(api.nvim_replace_termcodes("<BS>", true, false, true), "n", false)
+    st.backend:passthrough("<BS>")
     return
   end
   st.session:backspace()
@@ -484,7 +433,7 @@ function M.on_kill(key)
     reset_completion()
     render() -- 未確定を消す
   else
-    api.nvim_feedkeys(api.nvim_replace_termcodes(key, true, false, true), "n", false)
+    st.backend:passthrough(key)
   end
 end
 
@@ -495,7 +444,13 @@ function M.on_insert_leave()
   if not st.enabled then
     return
   end
-  if not (st.buf and api.nvim_buf_is_valid(st.buf) and api.nvim_get_current_buf() == st.buf) then
+  if
+    not (
+      st.backend
+      and api.nvim_buf_is_valid(st.backend.buf)
+      and api.nvim_get_current_buf() == st.backend.buf
+    )
+  then
     return
   end
   -- 補完候補の選択中は選択候補で確定する(学習も走る)。
@@ -507,8 +462,8 @@ function M.on_insert_leave()
   local s = st.session
   if s and (s:state() == "converting" or s:preedit() ~= "") then
     s:commit() -- 変換中なら学習。確定テキストは既にバッファにあるので残す
-    ui.clear(st.buf)
-    st.len = 0
+    ui.clear(st.backend.buf)
+    st.backend.len = 0
   end
   st.popup_open = false
 end
@@ -591,7 +546,7 @@ function M.on_register_word()
       return
     end
     -- プロンプト中に状態が変わっていないか保護
-    if not st.enabled or not (st.buf and api.nvim_buf_is_valid(st.buf)) then
+    if not st.enabled or not (st.backend and api.nvim_buf_is_valid(st.backend.buf)) then
       return
     end
     if st.session:state() ~= "converting" then
@@ -640,9 +595,9 @@ function M.completion_context()
     return nil
   end
   return {
-    row = st.row,
-    start_col = st.start_col,
-    len = st.len,
+    row = st.backend.row,
+    start_col = st.backend.start_col,
+    len = st.backend.len,
     yomi = items[1].yomi,
     items = items,
   }
@@ -652,12 +607,12 @@ end
 -- IME 状態(extmark・未確定領域長・popup)を掃除する。バッファ操作は cmp が済ませているので行わない。
 -- 次のハンドラの sync_anchor が len==0 で実カーソル位置へ再アンカーする。
 function M.commit_completion(item)
-  if not (st.enabled and st.session and st.buf and api.nvim_buf_is_valid(st.buf)) then
+  if not (st.enabled and st.session and st.backend and api.nvim_buf_is_valid(st.backend.buf)) then
     return
   end
   st.session:commit_completion(item)
-  ui.clear(st.buf)
-  st.len = 0
+  ui.clear(st.backend.buf)
+  st.backend.len = 0
   st.popup_open = false
   st.last_preedit_key = nil -- 同じ読みを再入力したときに再通知されるようリセット
   sync_converting_keymap()
@@ -707,25 +662,24 @@ end
 -- カーソル位置を再アンカーする。enable() と InsertEnter autocmd の両方から呼ばれる。
 local function attach_to_current_buf()
   local new_buf = api.nvim_get_current_buf()
-  if st.buf and st.buf ~= new_buf then
+  if st.backend and st.backend.buf ~= new_buf then
     -- 旧バッファが wipe 済みなら Vim 側で buffer-local maps は既に消えているので
     -- detach を呼ばない(~104 回の vim.keymap.del を節約)。
-    if api.nvim_buf_is_valid(st.buf) then
-      ui.clear(st.buf)
-      keymap.detach(st.buf)
+    if api.nvim_buf_is_valid(st.backend.buf) then
+      ui.clear(st.backend.buf)
+      keymap.detach(st.backend.buf)
     end
     st.converting_keys_attached = false
     st.completion_keys_attached = false
   end
-  st.buf = new_buf
+  st.backend = backend_buffer.new(new_buf)
   local cur = api.nvim_win_get_cursor(0)
-  st.row = cur[1] - 1
-  st.start_col = cur[2]
-  st.len = 0
+  st.backend.row = cur[1] - 1
+  st.backend.start_col = cur[2]
   st.popup_open = false
   st.completion.items = nil
   st.completion.index = 0
-  keymap.attach(st.buf, st.cfg, handlers())
+  keymap.attach(st.backend.buf, st.cfg, handlers())
 end
 
 local function enable()
@@ -738,7 +692,7 @@ local function enable()
 end
 
 local function disable()
-  local valid = st.buf and api.nvim_buf_is_valid(st.buf)
+  local valid = st.backend and api.nvim_buf_is_valid(st.backend.buf)
   -- 補完候補の選択中は選択候補で確定してから OFF(学習も走る)
   if valid and commit_completion_selection() then
     st.popup_open = false
@@ -749,8 +703,8 @@ local function disable()
     finalize(s:commit())
   end
   if valid then
-    ui.clear(st.buf)
-    keymap.detach(st.buf) -- 共通・converting/補完限定マップをすべて掃除する
+    ui.clear(st.backend.buf)
+    keymap.detach(st.backend.buf) -- 共通・converting/補完限定マップをすべて掃除する
   end
   st.enabled = false
   st.session = nil
@@ -853,7 +807,7 @@ function M.setup(opts)
       if not st.enabled then
         return
       end
-      if args.buf == st.buf then
+      if st.backend and args.buf == st.backend.buf then
         return
       end
       local bt = vim.bo[args.buf].buftype
