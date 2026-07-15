@@ -34,16 +34,29 @@ local COMPLETION_ONLY = {
   "completion_cancel",
 }
 
+-- cmdline("c")はバッファローカルにできない(:cnoremap は常にグローバル)ため、
+-- このモードだけグローバルスコープで attach/detach する。
+local GLOBAL_MODES = { c = true }
+
 local registered = {} -- "mode:buf" -> {lhs,...} (常時マッピング)
 local registered_converting = {} -- "mode:buf" -> {{lhs=,saved=},...} (converting 限定マッピング)
 local registered_completion = {} -- "mode:buf" -> {{lhs=,saved=},...} (補完 popup 表示中限定マッピング)
 
 local function store_key(mode, buf)
-  return mode .. ":" .. buf
+  return mode .. ":" .. (GLOBAL_MODES[mode] and "global" or buf)
 end
 
--- 一時的に奪うキー(converting/補完限定)を張る。上書き前にそのバッファへ既に
--- 張られていたマッピングがあれば保存し、detach_transient() で復元できるようにする。
+-- maparg/mapset はグローバルスコープでは buf 引数を取らないので、モードに応じて
+-- nvim_buf_call で包むかどうかを切り替える。
+local function with_scope(mode, buf, fn)
+  if GLOBAL_MODES[mode] then
+    return fn()
+  end
+  return vim.api.nvim_buf_call(buf, fn)
+end
+
+-- 一時的に奪うキー(converting/補完限定)を張る。上書き前にそのバッファ(またはグローバル)へ
+-- 既に張られていたマッピングがあれば保存し、detach_transient() で復元できるようにする。
 -- 同じ mode+buf に対する二重 attach は冪等(2 回目以降は何もしない)。
 local function attach_transient(buf, mode, names, config, handlers, store)
   local key = store_key(mode, buf)
@@ -52,13 +65,17 @@ local function attach_transient(buf, mode, names, config, handlers, store)
   end
   local entries = {}
   local km = config.keymaps
+  local map_opts = { nowait = true, silent = true }
+  if not GLOBAL_MODES[mode] then
+    map_opts.buffer = buf
+  end
   for _, name in ipairs(names) do
     local lhs = km[name]
-    local existing = vim.api.nvim_buf_call(buf, function()
+    local existing = with_scope(mode, buf, function()
       return vim.fn.maparg(lhs, mode, false, true)
     end)
     entries[#entries + 1] = { lhs = lhs, saved = next(existing) ~= nil and existing or nil }
-    vim.keymap.set(mode, lhs, handlers[name], { buffer = buf, nowait = true, silent = true })
+    vim.keymap.set(mode, lhs, handlers[name], map_opts)
   end
   store[key] = entries
 end
@@ -71,10 +88,11 @@ local function detach_transient(buf, mode, store)
   if not entries then
     return
   end
+  local del_opts = GLOBAL_MODES[mode] and {} or { buffer = buf }
   for _, e in ipairs(entries) do
-    pcall(vim.keymap.del, mode, e.lhs, { buffer = buf })
+    pcall(vim.keymap.del, mode, e.lhs, del_opts)
     if e.saved then
-      vim.api.nvim_buf_call(buf, function()
+      with_scope(mode, buf, function()
         vim.fn.mapset(mode, false, e.saved)
       end)
     end
@@ -82,13 +100,17 @@ local function detach_transient(buf, mode, store)
   store[key] = nil
 end
 
--- buf にバッファローカルの mode マッピングを張る(mode 省略時は "i")。
--- terminal backend は "t" を渡して terminal-job モードへ同じキー集合を張る。
+-- buf にバッファローカル(mode="c" のときはグローバル)の mode マッピングを張る
+-- (mode 省略時は "i")。terminal backend は "t"、cmdline backend は "c" を渡す。
 function M.attach(buf, config, handlers, mode)
   mode = mode or "i"
   local lhs_list = {}
+  local map_opts = { nowait = true, silent = true }
+  if not GLOBAL_MODES[mode] then
+    map_opts.buffer = buf
+  end
   local function map(lhs, fn)
-    vim.keymap.set(mode, lhs, fn, { buffer = buf, nowait = true, silent = true })
+    vim.keymap.set(mode, lhs, fn, map_opts)
     lhs_list[#lhs_list + 1] = lhs
   end
 
@@ -129,8 +151,9 @@ function M.detach(buf, mode)
   if not lhs_list then
     return
   end
+  local del_opts = GLOBAL_MODES[mode] and {} or { buffer = buf }
   for _, lhs in ipairs(lhs_list) do
-    pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+    pcall(vim.keymap.del, mode, lhs, del_opts)
   end
   registered[key] = nil
 end

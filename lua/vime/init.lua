@@ -9,6 +9,11 @@ local keymap = require("vime.keymap")
 local mode = require("vime.mode")
 local backend_buffer = require("vime.backend.buffer")
 local backend_terminal = require("vime.backend.terminal")
+local backend_cmdline = require("vime.backend.cmdline")
+
+-- cmdline backend を張ってよい cmdtype("/" "?" 検索、":" Ex コマンド)。
+-- "@"(input())・"="(式レジスタ)等は対象外(vim.ui.input の入れ子等を避けるため)。
+local CMDLINE_TYPES = { [":"] = true, ["/"] = true, ["?"] = true }
 
 local api = vim.api
 local M = {}
@@ -45,8 +50,10 @@ local st = {
   anthy_ok = false,
   enabled = false,
   session = nil,
+  ---@type vime.BufferBackend|vime.TerminalBackend|vime.CmdlineBackend|nil
+  backend = nil, -- 書込先 backend(buffer/terminal/cmdline)。buf と keymap_mode を持つ
   ---@type vime.BufferBackend|vime.TerminalBackend|nil
-  backend = nil, -- 書込先 backend(buffer/terminal)。buf と keymap_mode を持つ
+  saved_backend = nil, -- cmdline backend が一時的に割り込む前の backend(CmdlineLeave で復元)
   popup_open = false,
   last_mode_name = "direct", -- 直近通知したモード名(変化検出に使う)
   last_preedit_key = nil, -- 直近通知した preedit の状態キー(VimePreeditChanged の変化検出)
@@ -113,7 +120,7 @@ local function show_candidate_window(cands, sel)
       rel = #items
     end
   end
-  ui.show_popup(items, rel)
+  ui.show_popup(items, rel, st.backend:popup_pos())
 end
 
 -- 注目文節の候補一覧 popup を(再)表示する(変換中のみ)。
@@ -707,11 +714,46 @@ local function attach_to_terminal_buf(buf)
   switch_backend(backend_terminal.new(buf))
 end
 
--- 現在のバッファが terminal バッファかどうかに応じて buffer/terminal backend の
--- どちらを張るか決める。terminal-job モードへ実際に入っていなくても(Normal モードで
--- terminal バッファ上にいるだけでも)terminal backend を張ってよい: "t" モードの
--- キーマップは実際に terminal-job モードへ入って初めて効くので害はない。
+-- cmdline backend を割り込ませる。switch_backend() は使わない: cmdline は特定のバッファに
+-- 紐付く永続的な backend ではなく、":"/"?"/"?" の間だけ既存の backend(buffer/terminal)に
+-- 割り込む一時的なものなので、現在の backend を st.saved_backend に退避して
+-- CmdlineLeave(detach_cmdline_backend)で復元する。"c" のキーマップはグローバルなので
+-- 既存 backend のキーマップは detach しない(モードが違うので衝突しない)。
+local function attach_cmdline_backend()
+  st.saved_backend = st.backend
+  st.backend = backend_cmdline.new(api.nvim_get_current_buf())
+  st.popup_open = false
+  st.completion.items = nil
+  st.completion.index = 0
+  keymap.attach(st.backend.buf, st.cfg, handlers(), st.backend.keymap_mode)
+end
+
+-- cmdline backend を外し、割り込む前の backend へ戻す(CmdlineLeave から呼ぶ)。
+-- 退避先が無かった場合(enable 直後に cmdline から始まった等)は現在バッファへ再アンカーする。
+local function detach_cmdline_backend()
+  keymap.detach(st.backend.buf, st.backend.keymap_mode)
+  st.backend:clear()
+  st.converting_keys_attached = false
+  st.completion_keys_attached = false
+  if st.saved_backend then
+    st.backend = st.saved_backend
+    st.saved_backend = nil
+  else
+    attach_to_current_buf()
+  end
+end
+
+-- 現在のコンテキストに応じて backend を選ぶ: cmdline セッション中なら cmdline backend、
+-- terminal バッファなら terminal backend、それ以外は buffer backend。terminal-job モードへ
+-- 実際に入っていなくても(Normal モードで terminal バッファ上にいるだけでも)terminal
+-- backend を張ってよい: "t" モードのキーマップは実際に terminal-job モードへ入って
+-- 初めて効くので害はない。
 local function attach_to_current_context()
+  local cmdtype = vim.fn.getcmdtype()
+  if CMDLINE_TYPES[cmdtype] then
+    attach_cmdline_backend()
+    return
+  end
   local cur_buf = api.nvim_get_current_buf()
   if vim.bo[cur_buf].buftype == "terminal" then
     attach_to_terminal_buf(cur_buf)
@@ -826,6 +868,7 @@ function M.setup(opts)
   end
   vim.keymap.set("i", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input" })
   vim.keymap.set("t", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input (terminal)" })
+  vim.keymap.set("c", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input (cmdline)" })
 
   -- 挿入モードを抜けたら未確定を確定する(ノーマルモード編集を安全にする)
   local group = api.nvim_create_augroup("vime", { clear = true })
@@ -880,6 +923,39 @@ function M.setup(opts)
     group = group,
     callback = function()
       M.on_term_leave()
+    end,
+  })
+
+  -- IME ON のまま ":"/"/"/"?" の cmdline に入ったら、既存の backend(buffer/terminal)に
+  -- cmdline backend を割り込ませる。"@"(input())・"="(式レジスタ)等は対象外。
+  api.nvim_create_autocmd("CmdlineEnter", {
+    group = group,
+    desc = "vime: attach cmdline backend",
+    callback = function()
+      if not st.enabled or not CMDLINE_TYPES[vim.fn.getcmdtype()] then
+        return
+      end
+      attach_cmdline_backend()
+    end,
+  })
+
+  -- cmdline を抜けたら cmdline backend を外し、割り込む前の backend へ戻す。
+  -- Esc/C-c(v:event.abort)は未確定を破棄、<CR> 実行や他コマンドでの正常終了は学習だけ行う
+  -- (確定テキストは commit_step/finalize で既に setcmdline 済みなのでここでは書き込まない)。
+  api.nvim_create_autocmd("CmdlineLeave", {
+    group = group,
+    desc = "vime: detach cmdline backend",
+    callback = function()
+      if not (st.enabled and st.backend and st.backend.kind == "cmdline") then
+        return
+      end
+      reset_completion()
+      if vim.v.event.abort then
+        st.session:clear()
+      elseif st.session:state() == "converting" or st.session:preedit() ~= "" then
+        st.session:commit()
+      end
+      detach_cmdline_backend()
     end,
   })
 
