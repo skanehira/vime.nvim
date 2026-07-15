@@ -50,13 +50,13 @@ M.defaults = {
     nvim_cmp = false,
   },
   cmdline = {
-    -- ":"/"/"/"?" のコマンドラインでの日本語入力。他の cmdline 拡張プラグイン
-    -- (cmp-cmdline 等)と競合する場合の逃げ道として false にできる。
-    enabled = true,
+    -- ":"/"/"/"?" のコマンドラインでの日本語入力。既定は無効(opt-in)。
+    -- 有効化すると cmp-cmdline 等の他の cmdline 拡張プラグインと競合しうる。
+    enabled = false,
   },
   terminal = {
-    -- terminal バッファ(terminal-job モード)での日本語入力。
-    enabled = true,
+    -- terminal バッファ(terminal-job モード)での日本語入力。既定は無効(opt-in)。
+    enabled = false,
   },
 }
 

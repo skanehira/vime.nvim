@@ -148,7 +148,7 @@ describe("vime end-to-end (cmdline)", function()
     if vime.is_enabled() then
       vime.toggle()
     end
-    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = true } })
   end)
 
   it("converts typed romaji into hiragana inline in the cmdline", function()
@@ -180,6 +180,7 @@ describe("vime end-to-end (cmdline)", function()
     vime.setup({
       anthy = { lib = LIB },
       mode_notify = { duration = 100, labels = { hiragana = "HIRA" } },
+      cmdline = { enabled = true },
     })
     local probed = probe_in_cmdline(":", function()
       vime.toggle() -- cmdline セッション中に ON: mode notify が出る
@@ -311,7 +312,7 @@ describe("vime end-to-end (cmdline)", function()
   it(
     "detaches the interrupted buffer backend's insert-mode mapping when toggled OFF from inside a cmdline session",
     function()
-      vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+      vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = true } })
       local buf = api.nvim_create_buf(false, true)
       api.nvim_set_current_buf(buf)
       vime.toggle() -- buffer backend が "i" マッピングを張る

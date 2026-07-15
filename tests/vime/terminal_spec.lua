@@ -182,7 +182,7 @@ describe("vime end-to-end (terminal)", function()
   end
 
   it("sends the committed conversion to the PTY instead of writing it into the buffer", function()
-    vime.setup({ anthy = { lib = LIB } })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
     local buf = open_cat_terminal()
 
     vime.toggle() -- 日本語入力 ON(terminal-job モード中なので terminal backend が張られる)
@@ -203,7 +203,7 @@ describe("vime end-to-end (terminal)", function()
   end)
 
   it("does not send anything to the PTY while composing", function()
-    vime.setup({ anthy = { lib = LIB } })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
     local buf = open_cat_terminal()
     vime.toggle()
 
@@ -217,7 +217,7 @@ describe("vime end-to-end (terminal)", function()
   end)
 
   it("discards the preedit without sending it when leaving terminal-job mode", function()
-    vime.setup({ anthy = { lib = LIB } })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
     local buf = open_cat_terminal()
     vime.toggle()
 
@@ -235,7 +235,7 @@ describe("vime end-to-end (terminal)", function()
   end)
 
   it("follows the terminal buffer via the TermEnter autocmd when IME stays ON across a buffer switch", function()
-    vime.setup({ anthy = { lib = LIB } })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
     -- 通常バッファで ON にしておく(buffer backend)。
     local plain_buf = api.nvim_create_buf(false, true)
     api.nvim_set_current_buf(plain_buf)
@@ -259,7 +259,7 @@ describe("vime end-to-end (terminal)", function()
   end)
 
   it("sends the pending preedit when toggled OFF", function()
-    vime.setup({ anthy = { lib = LIB } })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
     local buf = open_cat_terminal()
     vime.toggle()
 
