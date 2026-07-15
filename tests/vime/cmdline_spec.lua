@@ -157,4 +157,41 @@ describe("vime end-to-end (cmdline)", function()
     assert.are.equal("ab", probed.line)
     vime.toggle()
   end)
+
+  it("detaches the interrupted buffer backend's insert-mode mapping when toggled OFF from inside a cmdline session", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    vime.toggle() -- buffer backend が "i" マッピングを張る
+
+    local mapped_before = api.nvim_buf_get_keymap(buf, "i")
+    local has_a_before = false
+    for _, m in ipairs(mapped_before) do
+      if m.lhs == "a" then
+        has_a_before = true
+      end
+    end
+    assert.is_true(has_a_before, "toggle ON 直後は \"i\" マッピングが張られているはず")
+
+    -- cmdline backend が buffer backend に割り込んだ状態のまま toggle OFF する。
+    probe_in_cmdline(":ab", function()
+      vime.toggle()
+    end)
+
+    local mapped_after = api.nvim_buf_get_keymap(buf, "i")
+    local has_a_after = false
+    for _, m in ipairs(mapped_after) do
+      if m.lhs == "a" then
+        has_a_after = true
+      end
+    end
+    assert.is_false(
+      has_a_after,
+      "cmdline セッション中に toggle OFF しても、割り込まれていた buffer backend の \"i\" マッピングが残留してはいけない"
+    )
+
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
 end)

@@ -786,6 +786,13 @@ local function disable()
     st.backend:clear()
     keymap.detach(st.backend.buf, st.backend.keymap_mode) -- 共通・converting/補完限定マップをすべて掃除する
   end
+  -- cmdline backend が割り込み中に OFF された場合、退避していた元 backend(buffer/terminal)
+  -- のキーマップも掃除する。st.backend(cmdline の "c" グローバルマッピング)を detach しても
+  -- 割り込まれた側の "i"/"t" バッファローカルマッピングは残ってしまうため。
+  if st.saved_backend and api.nvim_buf_is_valid(st.saved_backend.buf) then
+    keymap.detach(st.saved_backend.buf, st.saved_backend.keymap_mode)
+  end
+  st.saved_backend = nil
   st.enabled = false
   st.session = nil
   st.converting_keys_attached = false
