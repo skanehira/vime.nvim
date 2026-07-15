@@ -78,13 +78,16 @@ describe("vime.backend.cmdline", function()
     -- より前面に描画されるので隠れない)。headless では float の layout が走らず
     -- nvim_win_get_position が設定値をそのまま返すため、占有行そのものの検証は
     -- headless では不可能(実機の screenstring 検証で裏取りする)。
-    it("puts the float bottom edge at the cmdline top row regardless of laststatus (statusline overlap is intended)", function()
-      for _, ls in ipairs({ 0, 2, 3 }) do
-        vim.o.laststatus = ls
-        local b = backend_cmdline.new(api.nvim_get_current_buf())
-        assert.are.equal(vim.o.lines - vim.o.cmdheight, b:popup_pos().row)
+    it(
+      "puts the float bottom edge at the cmdline top row regardless of laststatus (statusline overlap is intended)",
+      function()
+        for _, ls in ipairs({ 0, 2, 3 }) do
+          vim.o.laststatus = ls
+          local b = backend_cmdline.new(api.nvim_get_current_buf())
+          assert.are.equal(vim.o.lines - vim.o.cmdheight, b:popup_pos().row)
+        end
       end
-    end)
+    )
 
     it("falls back to col=0 when not actually editing the command line", function()
       -- getcmdscreenpos() は cmdline 編集中以外は 0 を返す仕様(:help getcmdscreenpos())。
@@ -102,32 +105,41 @@ describe("vime.backend.cmdline", function()
     -- 書き込む(render() が実際にやっていることと同じ)。テスト構築時に既に文字が入った
     -- 状態で new() すると anchor がカーソル(末尾)に一致してしまい、バグを覆い隠してしまう
     -- (このテストの前身がまさにそれで、実際のバグを検出できていなかった)。
-    it("[ground truth] positions the float column at the start of the preedit region, not at the cursor, when there is no confirmed prefix", function()
-      local col = probe_in_cmdline(":", function()
-        local b = backend_cmdline.new(api.nvim_get_current_buf()) -- ":" 直後、anchor=0
-        b:set_region_text("これは") -- 未確定を書き込む(anchor は 0 のまま、len が進む)
-        return b:popup_pos().col
-      end)
-      -- ":" (prompt) の表示幅 = 1。"これは" はその直後(col 1)から始まるはず。
-      -- カーソル基準の誤った実装だと ":これは" 全体の表示幅(7)になってしまう。
-      assert.are.equal(1, col)
-    end)
+    it(
+      "[ground truth] positions the float column at the start of the preedit region, not at the cursor, when there is no confirmed prefix",
+      function()
+        local col = probe_in_cmdline(":", function()
+          local b = backend_cmdline.new(api.nvim_get_current_buf()) -- ":" 直後、anchor=0
+          b:set_region_text("これは") -- 未確定を書き込む(anchor は 0 のまま、len が進む)
+          return b:popup_pos().col
+        end)
+        -- ":" (prompt) の表示幅 = 1。"これは" はその直後(col 1)から始まるはず。
+        -- カーソル基準の誤った実装だと ":これは" 全体の表示幅(7)になってしまう。
+        assert.are.equal(1, col)
+      end
+    )
 
-    it("[ground truth] positions the float column at the display width of the confirmed prefix before the preedit", function()
-      local col = probe_in_cmdline(":abc", function()
-        local b = backend_cmdline.new(api.nvim_get_current_buf()) -- "abc" 入力済み、anchor はその末尾
-        b:set_region_text("これは") -- "abc" の直後に未確定を書き込む(anchor はここに固定)
-        return b:popup_pos().col
-      end)
-      -- ":abc" (prompt + 確定済み前置、すべて ASCII) の表示幅 = 4。
-      assert.are.equal(4, col)
-    end)
+    it(
+      "[ground truth] positions the float column at the display width of the confirmed prefix before the preedit",
+      function()
+        local col = probe_in_cmdline(":abc", function()
+          local b = backend_cmdline.new(api.nvim_get_current_buf()) -- "abc" 入力済み、anchor はその末尾
+          b:set_region_text("これは") -- "abc" の直後に未確定を書き込む(anchor はここに固定)
+          return b:popup_pos().col
+        end)
+        -- ":abc" (prompt + 確定済み前置、すべて ASCII) の表示幅 = 4。
+        assert.are.equal(4, col)
+      end
+    )
 
-    it("anchors from the bottom-left(SW) so a multi-row candidate popup grows upward instead of into the statusline/cmdline", function()
-      local b = backend_cmdline.new(api.nvim_get_current_buf())
-      local pos = b:popup_pos()
-      assert.are.equal("SW", pos.anchor)
-    end)
+    it(
+      "anchors from the bottom-left(SW) so a multi-row candidate popup grows upward instead of into the statusline/cmdline",
+      function()
+        local b = backend_cmdline.new(api.nvim_get_current_buf())
+        local pos = b:popup_pos()
+        assert.are.equal("SW", pos.anchor)
+      end
+    )
   end)
 end)
 
@@ -296,40 +308,43 @@ describe("vime end-to-end (cmdline)", function()
     vime.toggle()
   end)
 
-  it("detaches the interrupted buffer backend's insert-mode mapping when toggled OFF from inside a cmdline session", function()
-    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
-    local buf = api.nvim_create_buf(false, true)
-    api.nvim_set_current_buf(buf)
-    vime.toggle() -- buffer backend が "i" マッピングを張る
+  it(
+    "detaches the interrupted buffer backend's insert-mode mapping when toggled OFF from inside a cmdline session",
+    function()
+      vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false } })
+      local buf = api.nvim_create_buf(false, true)
+      api.nvim_set_current_buf(buf)
+      vime.toggle() -- buffer backend が "i" マッピングを張る
 
-    local mapped_before = api.nvim_buf_get_keymap(buf, "i")
-    local has_a_before = false
-    for _, m in ipairs(mapped_before) do
-      if m.lhs == "a" then
-        has_a_before = true
+      local mapped_before = api.nvim_buf_get_keymap(buf, "i")
+      local has_a_before = false
+      for _, m in ipairs(mapped_before) do
+        if m.lhs == "a" then
+          has_a_before = true
+        end
+      end
+      assert.is_true(has_a_before, 'toggle ON 直後は "i" マッピングが張られているはず')
+
+      -- cmdline backend が buffer backend に割り込んだ状態のまま toggle OFF する。
+      probe_in_cmdline(":ab", function()
+        vime.toggle()
+      end)
+
+      local mapped_after = api.nvim_buf_get_keymap(buf, "i")
+      local has_a_after = false
+      for _, m in ipairs(mapped_after) do
+        if m.lhs == "a" then
+          has_a_after = true
+        end
+      end
+      assert.is_false(
+        has_a_after,
+        'cmdline セッション中に toggle OFF しても、割り込まれていた buffer backend の "i" マッピングが残留してはいけない'
+      )
+
+      if vime.is_enabled() then
+        vime.toggle()
       end
     end
-    assert.is_true(has_a_before, "toggle ON 直後は \"i\" マッピングが張られているはず")
-
-    -- cmdline backend が buffer backend に割り込んだ状態のまま toggle OFF する。
-    probe_in_cmdline(":ab", function()
-      vime.toggle()
-    end)
-
-    local mapped_after = api.nvim_buf_get_keymap(buf, "i")
-    local has_a_after = false
-    for _, m in ipairs(mapped_after) do
-      if m.lhs == "a" then
-        has_a_after = true
-      end
-    end
-    assert.is_false(
-      has_a_after,
-      "cmdline セッション中に toggle OFF しても、割り込まれていた buffer backend の \"i\" マッピングが残留してはいけない"
-    )
-
-    if vime.is_enabled() then
-      vime.toggle()
-    end
-  end)
+  )
 end)

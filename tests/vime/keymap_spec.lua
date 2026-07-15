@@ -409,11 +409,16 @@ describe("vime.keymap global scope (mode c)", function()
   it("attaches globally (not buffer-local) when mode is c", function()
     local buf = api.nvim_create_buf(false, true)
     local calls = {}
-    keymap.attach(buf, config.merge(nil), noop_handlers({
-      input = function(ch)
-        calls.input = ch
-      end,
-    }), "c")
+    keymap.attach(
+      buf,
+      config.merge(nil),
+      noop_handlers({
+        input = function(ch)
+          calls.input = ch
+        end,
+      }),
+      "c"
+    )
 
     local a = find_global_map("a")
     assert.is_not_nil(a)
