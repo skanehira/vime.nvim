@@ -91,6 +91,35 @@ describe("vime.session COMPOSING", function()
     assert.are.equal("composing", s:state())
     assert.are.equal("", s:preedit())
   end)
+
+  it("shows a trailing single n as-is until a second n resolves it to ん", function()
+    local s = new()
+    type_in(s, "n")
+    assert.are.equal("n", s:preedit()) -- 1回目の n はそのまま表示
+    type_in(s, "n")
+    assert.are.equal("ん", s:preedit()) -- 2回目の n で ん に確定表示
+  end)
+
+  it("resolves a trailing n to ん on commit even if still shown as n", function()
+    local s = new()
+    type_in(s, "shinbun")
+    assert.are.equal("しんぶn", s:preedit()) -- 表示は末尾 n のまま
+    assert.are.equal("しんぶん", s:commit()) -- 確定時に ん へ解決
+  end)
+
+  it("resolves a trailing n to ん on katakana commit", function()
+    local s = new()
+    type_in(s, "shinbun")
+    assert.are.equal("シンブン", s:commit_katakana())
+  end)
+
+  it("deletes ん as a single kana unit on backspace after nn", function()
+    local s = new()
+    type_in(s, "kann")
+    assert.are.equal("かん", s:preedit())
+    s:backspace()
+    assert.are.equal("か", s:preedit())
+  end)
 end)
 
 describe("vime.session LATIN (uppercase)", function()

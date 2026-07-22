@@ -228,6 +228,10 @@ end
 
 -- ローマ字列をひらがなへ変換する。大文字は小文字化して扱う。
 -- custom_table 省略時は wapuro(M.default_table)。act 等の独自配列を使うときに渡す。
+-- in_progress が truthy のとき、末尾が単独の n(次に何も続かない)なら ん に解決せず
+-- n のまま素通しする。入力途中のプリエディット表示用(2回目の n や後続の子音が来る
+-- まで な行/にゃ行か ん か確定しない、実 IME 準拠の表示)。省略/false なら従来どおり
+-- 末尾の単独 n も ん に解決する(確定文字列の生成に使う)。
 --
 -- 評価順序:
 --   1. テーブル最長一致 (4→1 文字)
@@ -239,7 +243,7 @@ end
 -- 既定の撥音/促音ルールと衝突するキー列を、テーブルで上書きできるようにするため。
 -- 既定 wapuro テーブルでも、最長一致でマッチしないシーケンスのみ撥音/促音判定へ
 -- 落ちるので、既存の挙動(かんじ・けっか・まっちゃ等)は維持される。
-function M.to_kana(s, custom_table)
+function M.to_kana(s, custom_table, in_progress)
   local tbl = custom_table or T
   s = s:lower()
   local out = {}
@@ -271,9 +275,13 @@ function M.to_kana(s, custom_table)
         i = i + 2
         goto cont
       elseif nx == "" then
-        out[#out + 1] = "ん"
-        i = i + 1
-        goto cont
+        if not in_progress then
+          out[#out + 1] = "ん"
+          i = i + 1
+          goto cont
+        end
+        -- in_progress: 末尾の単独 n はまだ ん に確定せず、下の未知文字フォールバックで
+        -- n のまま出す(2回目の n か後続の子音が来るまで保留)。
       elseif is_vowel(nx) or nx == "y" then
         -- na/ni/nya... テーブルに無いので未知文字フォールバックへ
       else

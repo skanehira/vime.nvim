@@ -68,7 +68,7 @@ function Session:preedit_segments()
       local segs = self:segments()
       view[#view + 1] = { kind = "segments", list = segs.list, current = segs.current }
     elseif seg.kind == "kana" then
-      view[#view + 1] = { kind = "kana", text = romaji.to_kana(seg.romaji, self._romaji_table) }
+      view[#view + 1] = { kind = "kana", text = romaji.to_kana(seg.romaji, self._romaji_table, true) }
     else
       view[#view + 1] = { kind = seg.kind, text = seg.text } -- latin / confirmed
     end
@@ -85,7 +85,7 @@ function Session:preedit()
     if self._state == "converting" and i == self._active_kana_idx then
       parts[i] = table.concat(self:segments().list)
     elseif seg.kind == "kana" then
-      parts[i] = romaji.to_kana(seg.romaji, self._romaji_table)
+      parts[i] = romaji.to_kana(seg.romaji, self._romaji_table, true)
     else
       parts[i] = seg.text -- latin / confirmed
     end
@@ -215,10 +215,10 @@ function Session:backspace()
     return
   end
   -- kana セグメント: ローマ字を末尾から削り、未完成英字で終わらず・かな数が1減るまで戻す。
-  local before = uchars(romaji.to_kana(t.romaji, self._romaji_table))
+  local before = uchars(romaji.to_kana(t.romaji, self._romaji_table, true))
   while #t.romaji > 0 do
     t.romaji = t.romaji:sub(1, #t.romaji - 1)
-    local kana = romaji.to_kana(t.romaji, self._romaji_table)
+    local kana = romaji.to_kana(t.romaji, self._romaji_table, true)
     if not kana:match("[A-Za-z]$") and uchars(kana) < before then
       break
     end
@@ -426,7 +426,7 @@ function Session:commit()
     reset_composing(self)
     return text
   end
-  local text = self:preedit()
+  local text = concat_all(self)
   reset_composing(self)
   return text
 end
@@ -445,7 +445,7 @@ function Session:commit_step()
     reset_composing(self)
     return text
   end
-  local text = self:preedit()
+  local text = concat_all(self)
   reset_composing(self)
   return text
 end

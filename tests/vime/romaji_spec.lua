@@ -154,6 +154,19 @@ describe("vime.romaji.to_kana", function()
     })
   end)
 
+  it("keeps a trailing single n as-is when in_progress is true", function()
+    -- 入力途中(第3引数 true): 末尾の単独 n は ん に解決せず素通しする(Google日本語入力の挙動)
+    assert.are.equal("n", romaji.to_kana("n", nil, true))
+    assert.are.equal("かn", romaji.to_kana("kan", nil, true))
+    -- nn は入力途中でも常に ん(後続を待たず確定できる)
+    assert.are.equal("ん", romaji.to_kana("nn", nil, true))
+    -- 子音の前は入力途中でも ん に解決する(後続で確定しているため)
+    assert.are.equal("かんじ", romaji.to_kana("kanji", nil, true))
+    -- in_progress を省略/false なら従来どおり末尾 n も ん に解決する
+    assert.are.equal("かん", romaji.to_kana("kan"))
+    assert.are.equal("かん", romaji.to_kana("kan", nil, false))
+  end)
+
   it("lowercases uppercase input", function()
     check({
       { "Kyou", "きょう" },
