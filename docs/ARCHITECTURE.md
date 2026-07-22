@@ -106,7 +106,8 @@ init ──► integrations/* (opt-in。is_enabled を依存注入で渡し、�
 #### `romaji.lua`（純粋関数）
 
 ```lua
-romaji.to_kana(s, custom_table?)  -- ローマ字列 → ひらがな。custom_table 省略時は default_table。
+romaji.to_kana(s, custom_table?, in_progress?)  -- ローマ字列 → ひらがな。custom_table 省略時は default_table。
+                                                 -- in_progress=true なら末尾の単独 n を ん に解決せず素通しする。
 romaji.to_katakana(s)             -- ひらがな(U+3041-3096) → カタカナ(+0x60)。それ以外は素通し
 romaji.default_table              -- 既定の wapuro テーブル(読み取り専用扱い)
 ```
@@ -115,6 +116,7 @@ romaji.default_table              -- 既定の wapuro テーブル(読み取り�
 - 外来音・拗音グライド（`fa`/`va`/`tsa`/`tha`/`kwa`…）は `expand()` で機械生成し、手で穴を埋め続けない。
 - `to_kana` の評価順序は **テーブル最長一致（4→1 文字） → 撥音 `ん` look-ahead → 促音 `っ` look-ahead → 未知文字フォールバック**。テーブルを先に試すのは、ACT のような独自配列で `nh`/`tt`/`ss` などが既定の撥音/促音ルールと衝突するため、テーブル定義で上書き可能にしておく必要があるから。既定 wapuro でもこれらの2連続/3連続キーはテーブルに無いので、撥音・促音判定にそのまま落ちる（既存の挙動は維持される）。
 - **カスタムテーブル**: `to_kana(s, custom_table)` の第2引数で完全置換できる（マージしない）。撥音 `ん`・促音 `っ`・大文字英字ランの判定はテーブル非依存で常に同じロジック。`setup({ romaji = { table = ... } })` 経由で session に渡る。
+- **`in_progress`（第3引数）**: 入力途中のプリエディット表示か、確定文字列の生成かを切り替える。true なら末尾の単独 `n`（次に何も続かない）を `ん` に解決せず `n` のまま返す。省略/false なら従来どおり末尾の単独 `n` も `ん` に解決する（詳細は [§6](#6-不変条件と罠)）。
 
 #### `anthy.lua`（FFI ラッパ・副作用境界）
 
@@ -137,7 +139,7 @@ Session:close()              -- context 解放
 
 #### `session.lua`（状態機械）
 
-プリエディットを **セグメント列**（`kana`/`latin`）として保持する。`preedit` は各セグメントを連結して導出する。kana セグメントは `romaji.to_kana` を通し、latin セグメントは生英字のまま。カスタムローマ字テーブルが渡されている場合は `to_kana` の第2引数として伝播する。
+プリエディットを **セグメント列**（`kana`/`latin`）として保持する。`preedit` は各セグメントを連結して導出する。kana セグメントは `romaji.to_kana(..., in_progress=true)` を通し（入力途中は末尾の単独 `n` を `ん` に解決しない）、latin セグメントは生英字のまま。カスタムローマ字テーブルが渡されている場合は `to_kana` の第2引数として伝播する。確定文字列（`commit`/`commit_step`/`commit_katakana` 等）は `in_progress` を渡さず末尾 `n` も `ん` に解決した文字列を生成する。
 
 ```lua
 session.new(anthy_module, opts) -- anthy 注入。opts.ascii_toggle で ASCII トグル文字、opts.romaji_table でカスタムローマ字テーブルを渡す
@@ -363,7 +365,8 @@ feasibility 検証（旧 PoC）で確定し、回帰しやすい要点。コー�
 - **terminal-job モードを抜けるときは未確定を「破棄」する（`InsertLeave` とは非対称）**。`init.lua` の `TermLeave` autocmd（`M.on_term_leave`）は `session:commit()` を呼ばない。leave しただけで確定テキストが `chansend` で PTY(シェル) へ送られてしまうのを避けるため。挿入モードの `InsertLeave` が未確定を**確定**するのとは意図的に非対称。
 - **cmdline/terminal backend は dot repeat（`.`）の対象外**。`buffer` backend の確定経路（挿入モード中の feedkeys + `<C-G>u`）は Vim の「挿入モード」概念に依存しており、cmdline・terminal-job モードには挿入モードが無い。`cmdline`/`terminal` backend の `finalize` はどちらも feedkeys 経路を持たない（`cmdline` は `setcmdline` による API 置換、`terminal` は `chansend` による送出）ため、構造的に dot repeat には載らない。
 - **`anthy.lua` は失敗しても例外を投げない**。`setup` は `false` を返し、`init` 側で `vim.notify` ＋無効化する。「Vim を壊さない」が基本方針。
-- **撥音 `ん` の look-ahead**: `nn` は後続文字に関わらず常に `ん`（2 文字消費）にする（Google 日本語入力準拠）。`na`/`ni`/`nya` のようにな行/にゃ行と区別したいときはユーザーが `n` を重ねて打つ（`honya→ほにゃ`、`honnya→ほんや`）。`'` によるエスケープは持たない。単発 `n`（子音の前・入力末尾）は `ん`、母音/`y` の前はテーブル側のな行/にゃ行に委ねる。
+- **撥音 `ん` の look-ahead**: `nn` は後続文字に関わらず常に `ん`（2 文字消費）にする（Google 日本語入力準拠）。`na`/`ni`/`nya` のようにな行/にゃ行と区別したいときはユーザーが `n` を重ねて打つ（`honya→ほにゃ`、`honnya→ほんや`）。`'` によるエスケープは持たない。単発 `n`（子音の前）は `ん`、母音/`y` の前はテーブル側のな行/にゃ行に委ねる。
+- **入力末尾の単独 `n` は表示と確定で扱いが異なる（`to_kana` の `in_progress` 引数）**: `session.lua` の表示系呼び出し（`preedit`/`preedit_segments`/`backspace`）は `in_progress=true` を渡し、末尾の単独 `n` を `ん` に解決せず `n` のまま表示する（2回目の `n` か後続の子音が来るまで、な行/にゃ行か `ん` か確定しない実 IME 準拠の見た目）。確定系（`start_conversion`/`commit`/`commit_step`/`commit_katakana`/`completion_candidates` が内部で使う経路）は `in_progress` を渡さず、末尾に `n` が残っていても `ん` に解決する（`shinbun` → 表示中は「しんぶn」、`<CR>` で「しんぶん」）。
 - **促音 `っ`**: 同子音の連続（`kk`/`tt`…）と `tch` で生成する。
 - **外来音・拗音テーブルは `expand()` で機械生成する**。`fa`/`va`/`tsa`/`tha`/`kwa` などを手で 1 つずつ足し続けない（穴が残る）。`f`/`v`/`ts` は `u` スロットがベース音（ふ/ゔ/つ）なので skip する。
 - **学習は副作用としてディスクに永続化される**。原 anthy(9100h) は `$HOME/.anthy`、anthy-unicode は `$XDG_CONFIG_HOME/anthy`（未設定なら `~/.config/anthy`）。テストはこれを一時ディレクトリへ隔離する（[§9](#9-テスト構成)）。

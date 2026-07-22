@@ -38,7 +38,7 @@ init ──► 全モジュールを結線するコントローラ
 ```
 
 - **副作用はすべて `anthy.lua` に閉じ込める**。FFI と学習の永続化がここに入る。`session` は `anthy_module` を **コンストラクタ注入**（`session.new(anthy_module, romaji_table?)`）で受け取り、テストでも実 anthy を注入する（fake は廃止）。`romaji_table` はカスタムローマ字テーブル（nil で既定 wapuro）。
-- **`romaji.lua` は純粋関数のみ**。FFI も Vim API も触らない。テストは入出力比較で完結する。`to_kana(s, custom_table?)` の第2引数で配列を完全置換できる（撥音/促音/英字ランの look-ahead はテーブル非依存）。評価順序は **テーブル最長一致 → 撥音 → 促音 → 未知文字フォールバック**。テーブル先行なので、ACT 等で `nh`/`tt`/`ss` を独自定義すれば既定 look-ahead と衝突しない。
+- **`romaji.lua` は純粋関数のみ**。FFI も Vim API も触らない。テストは入出力比較で完結する。`to_kana(s, custom_table?, in_progress?)` の第2引数で配列を完全置換できる（撥音/促音/英字ランの look-ahead はテーブル非依存）。評価順序は **テーブル最長一致 → 撥音 → 促音 → 未知文字フォールバック**。テーブル先行なので、ACT 等で `nh`/`tt`/`ss` を独自定義すれば既定 look-ahead と衝突しない。第3引数 `in_progress=true` は入力途中のプリエディット表示用で、末尾の単独 `n` を `ん` に解決せず素通しする（`session.lua` の表示系呼び出しが使う。確定系は渡さず末尾 `n` も `ん` に解決する）。
 - **`init.lua` がコントローラ**。バッファ・カーソル位置・未確定領域(`start_col`/`len`)・popup 状態を保持し、`session` の状態変化を `ui` 描画に流す唯一の場所。新しいハンドラを足すときも `init.lua` の `handlers()` テーブル経由で `keymap.lua` に渡す。
 
 ### 必ず守る不変条件
