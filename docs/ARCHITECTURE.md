@@ -363,7 +363,7 @@ feasibility 検証（旧 PoC）で確定し、回帰しやすい要点。コー�
 - **terminal-job モードを抜けるときは未確定を「破棄」する（`InsertLeave` とは非対称）**。`init.lua` の `TermLeave` autocmd（`M.on_term_leave`）は `session:commit()` を呼ばない。leave しただけで確定テキストが `chansend` で PTY(シェル) へ送られてしまうのを避けるため。挿入モードの `InsertLeave` が未確定を**確定**するのとは意図的に非対称。
 - **cmdline/terminal backend は dot repeat（`.`）の対象外**。`buffer` backend の確定経路（挿入モード中の feedkeys + `<C-G>u`）は Vim の「挿入モード」概念に依存しており、cmdline・terminal-job モードには挿入モードが無い。`cmdline`/`terminal` backend の `finalize` はどちらも feedkeys 経路を持たない（`cmdline` は `setcmdline` による API 置換、`terminal` は `chansend` による送出）ため、構造的に dot repeat には載らない。
 - **`anthy.lua` は失敗しても例外を投げない**。`setup` は `false` を返し、`init` 側で `vim.notify` ＋無効化する。「Vim を壊さない」が基本方針。
-- **撥音 `ん` の look-ahead**: `nn` を常に 2 文字消費すると `こんにちは→こんいちは`、`おんな→おんあ` になる。2 つ目の `n` の次が母音/`y` なら `n` を 1 つだけ `ん` にする（実 IME 準拠）。`namba→なmば`（難波は `nanba`）、`honya→ほにゃ`（本屋は `hon'ya`）も実 IME と同じ正しい挙動。
+- **撥音 `ん` の look-ahead**: `nn` は後続文字に関わらず常に `ん`（2 文字消費）にする（Google 日本語入力準拠）。`na`/`ni`/`nya` のようにな行/にゃ行と区別したいときはユーザーが `n` を重ねて打つ（`honya→ほにゃ`、`honnya→ほんや`）。`'` によるエスケープは持たない。単発 `n`（子音の前・入力末尾）は `ん`、母音/`y` の前はテーブル側のな行/にゃ行に委ねる。
 - **促音 `っ`**: 同子音の連続（`kk`/`tt`…）と `tch` で生成する。
 - **外来音・拗音テーブルは `expand()` で機械生成する**。`fa`/`va`/`tsa`/`tha`/`kwa` などを手で 1 つずつ足し続けない（穴が残る）。`f`/`v`/`ts` は `u` スロットがベース音（ふ/ゔ/つ）なので skip する。
 - **学習は副作用としてディスクに永続化される**。原 anthy(9100h) は `$HOME/.anthy`、anthy-unicode は `$XDG_CONFIG_HOME/anthy`（未設定なら `~/.config/anthy`）。テストはこれを一時ディレクトリへ隔離する（[§9](#9-テスト構成)）。
