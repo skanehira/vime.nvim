@@ -134,17 +134,23 @@ describe("vime.romaji.to_kana", function()
   it("converts hatsuon (n) with correct look-ahead", function()
     check({
       { "kanji", "かんじ" },
-      { "konnichiha", "こんにちは" },
-      { "onna", "おんな" },
-      { "annai", "あんない" },
+      -- nn は後続に関わらず常に「ん」(Google日本語入力準拠)
+      { "konnichiha", "こんいちは" },
+      { "konnnichiha", "こんにちは" },
+      { "onna", "おんあ" },
+      { "onnna", "おんな" },
+      { "annai", "あんあい" },
+      { "annnai", "あんない" },
       { "tennki", "てんき" },
       { "iitenki", "いいてんき" },
       { "iitennki", "いいてんき" },
       { "nn", "ん" },
       { "n", "ん" },
       { "honya", "ほにゃ" },
-      { "hon'ya", "ほんや" },
+      { "honnya", "ほんや" },
       { "shinbun", "しんぶん" },
+      -- ' エスケープは廃止。テーブル/look-aheadどちらにもマッチしないので素通し
+      { "hon'ya", "ほん'や" },
     })
   end)
 
@@ -227,7 +233,7 @@ describe("vime.romaji.to_kana with custom table", function()
     -- 撥音 ん・促音 っ・大文字英字ランの判定はテーブル非依存で常に有効
     local custom = { a = "ア", ka = "カ", ki = "キ" }
     -- 撥音 ん: custom に "nn" も "n" も無いので最長一致が外れ、撥音 look-ahead が効く
-    -- (nx='n', nx2='k' → "ん" + i+=2 → 次に "ka" がテーブルヒット)
+    -- (nx='n' → 常に "ん" + i+=2 → 次に "ka" がテーブルヒット)
     assert.are.equal("んカ", romaji.to_kana("nnka", custom))
     -- 促音 っ: ka が同子音連続(kka)で っ が前置される
     assert.are.equal("っカ", romaji.to_kana("kka", custom))

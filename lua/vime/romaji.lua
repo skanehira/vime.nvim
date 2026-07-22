@@ -265,24 +265,11 @@ function M.to_kana(s, custom_table)
     -- 2. 撥音 ん
     if c == "n" then
       local nx = s:sub(i + 1, i + 1)
-      if nx == "'" then
+      if nx == "n" then
+        -- nn は後続に関わらず常に ん (Google日本語入力準拠)
         out[#out + 1] = "ん"
         i = i + 2
         goto cont
-      elseif nx == "n" then
-        -- "nn" の曖昧性: 2つ目の n の次を見て分岐 (実IME準拠)
-        local nx2 = s:sub(i + 2, i + 2)
-        if is_vowel(nx2) or nx2 == "y" then
-          -- onna/konnichi: 2つ目の n はな行/にゃを始める → n を1つだけ ん にする
-          out[#out + 1] = "ん"
-          i = i + 1
-          goto cont
-        else
-          -- tennki/末尾: nn → ん (子音前 or 末尾)
-          out[#out + 1] = "ん"
-          i = i + 2
-          goto cont
-        end
       elseif nx == "" then
         out[#out + 1] = "ん"
         i = i + 1
