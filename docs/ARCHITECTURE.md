@@ -273,7 +273,7 @@ terminal は離脱経路が 2 つあり挙動が逆になる点に注意: **`Ter
 
 **cmdline backend の割り込みモデル**: `CmdlineEnter` で現在の `st.backend`（`buffer` か `terminal`）を `st.saved_backend` に退避し、`cmdline` backend を `st.backend` に差し替えて `"c"` グローバルマッピングを張る。`"c"` はグローバルなので既存 backend の `"i"`/`"t"` マッピングは detach しない（モードが異なり衝突しないため）。`CmdlineLeave` で `"c"` マッピングを detach し、`st.saved_backend` を `st.backend` へ復元する（`st.saved_backend` が無い＝退避前から backend が無かった場合のみ `attach_to_current_buf()` へフォールバック）。`enable()`/`toggle()` は `attach_to_current_context()` で現在のコンテキスト（`getcmdtype()` → `buftype` の順）を見て 3 backend のどれを張るか決めるので、cmdline セッション中に toggle しても正しく `cmdline` backend が選ばれる。cmdline セッション中に `<C-j>` で OFF にした場合も `disable()` が `st.saved_backend` のキーマップを合わせて detach する（割り込まれた側のマッピングが残留しないように）。
 
-`terminal`/`cmdline` は `config.terminal.enabled`/`config.cmdline.enabled`（既定 `false`。opt-in）で有効化できる（§8）。無効（既定）時は該当 autocmd が該当 backend を張らず、typed した文字は vime に横取りされずそのまま書込先へ届く。
+`terminal`/`cmdline` は `config.terminal.enabled`/`config.cmdline.enabled`（既定 `false`。opt-in）で有効化できる（§8）。無効（既定）時は該当 autocmd が該当 backend を張らず、typed した文字は vime に横取りされずそのまま書込先へ届く。**toggle キー（既定 `<C-j>`）自体も、有効なモードにしか張らない**（`M.setup()` の `set_toggle_keymap(keymap_mode, enabled, desc)`）。無効モードにも張ってしまうと、日本語入力に使えないのにモード通知だけ出たうえで、そのモード本来の `<C-j>` の動作（cmdline の改行＝実行、terminal-job モードでの PTY 送出）を奪ってしまうため。`"i"`（挿入モード）は常に張る。`setup()` が再実行されて有効→無効に変わったときは、vime 自身が張ったマッピングだけを `desc` 文字列（`"vime: toggle japanese input (terminal)"` / `"... (cmdline)"`）で判別して削除し、ユーザや他プラグインの同じキーのマッピングは残す。
 
 ## 4. 処理フロー
 
