@@ -309,6 +309,54 @@ describe("vime end-to-end (cmdline)", function()
     vime.toggle()
   end)
 
+  -- cmdline が無効なら toggle キー自体も "c" には張らない。張ってしまうと、日本語入力に
+  -- 使えないのにモード表示だけ出て、コマンドラインでの <C-j>(改行 = 実行)が奪われる。
+  it("maps the toggle key in the cmdline when cmdline.enabled is true", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = true } })
+    assert.are.equal("vime: toggle japanese input (cmdline)", vim.fn.maparg("<C-j>", "c", false, true).desc)
+    -- マッピングが張られているだけでなく、押したら実際に日本語入力が ON になることまで見る。
+    local enabled_in_cmdline = probe_in_cmdline(":<C-j>", function()
+      return vime.is_enabled()
+    end)
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    assert.is_true(enabled_in_cmdline)
+  end)
+
+  it("does not map the toggle key in the cmdline when cmdline.enabled is false", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = false } })
+    -- 挿入モードの toggle は無効設定でも常に張られる(setup が走ったことの裏付け)
+    assert.are.equal("vime: toggle japanese input", vim.fn.maparg("<C-j>", "i", false, true).desc)
+    assert.are.same({}, vim.fn.maparg("<C-j>", "c", false, true))
+  end)
+
+  it("removes its cmdline toggle mapping when setup runs again with cmdline.enabled = false", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = true } })
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = false } })
+    assert.are.same({}, vim.fn.maparg("<C-j>", "c", false, true))
+  end)
+
+  -- 報告された症状そのものの回帰テスト: 無効時に toggle キーを張っていると、コマンドライン
+  -- での <C-j>(改行 = 実行)が vime に奪われてコマンドが実行されなくなる。
+  it("executes the command line on the toggle key when cmdline.enabled is false", function()
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = false } })
+    feed(":let g:vime_cmdline_probe = 1<C-j>")
+    -- assert より先に後片付けする(失敗しても後続テストへグローバル状態を漏らさない)
+    local probe, mode_after = vim.g.vime_cmdline_probe, vim.fn.mode()
+    vim.g.vime_cmdline_probe = nil
+    assert.are.equal(1, probe)
+    assert.are.equal("n", mode_after) -- cmdline を抜けている
+  end)
+
+  it("keeps a user's own cmdline mapping on the toggle key when cmdline.enabled is false", function()
+    vim.keymap.set("c", "<C-j>", "<Nop>", { desc = "user mapping" })
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, cmdline = { enabled = false } })
+    local desc = vim.fn.maparg("<C-j>", "c", false, true).desc
+    pcall(vim.keymap.del, "c", "<C-j>") -- assert より先に後片付けする
+    assert.are.equal("user mapping", desc)
+  end)
+
   it(
     "detaches the interrupted buffer backend's insert-mode mapping when toggled OFF from inside a cmdline session",
     function()

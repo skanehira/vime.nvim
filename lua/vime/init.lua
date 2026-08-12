@@ -869,6 +869,19 @@ for _, name in ipairs(NOTIFY_TARGETS) do
   end
 end
 
+-- toggle キーを mode へ張る/外す。enabled=false のときは、直前の setup() で vime 自身が
+-- 張ったマッピング(desc で判別)だけを外す。ユーザや他プラグインの同じキーのマッピングは残す。
+local function set_toggle_keymap(keymap_mode, enabled, desc)
+  local lhs = st.cfg.keymaps.toggle
+  if enabled then
+    vim.keymap.set(keymap_mode, lhs, M.toggle, { desc = desc })
+    return
+  end
+  if vim.fn.maparg(lhs, keymap_mode, false, true).desc == desc then
+    pcall(vim.keymap.del, keymap_mode, lhs)
+  end
+end
+
 function M.setup(opts)
   st.cfg = config.merge(opts)
   ui.setup({ mode_notify_highlight = st.cfg.mode_notify.highlight })
@@ -878,8 +891,11 @@ function M.setup(opts)
     vim.notify(M.install_hint(), vim.log.levels.WARN)
   end
   vim.keymap.set("i", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input" })
-  vim.keymap.set("t", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input (terminal)" })
-  vim.keymap.set("c", st.cfg.keymaps.toggle, M.toggle, { desc = "vime: toggle japanese input (cmdline)" })
+  -- terminal/cmdline は opt-in(既定 false)。無効なら toggle キーも該当モードには張らない。
+  -- 張ってしまうと、日本語入力には使えないのにモード通知だけ出たうえで、そのモードでの
+  -- 本来の動作(cmdline の <C-j> = 改行/実行、terminal-job モードでの PTY 送出)を奪ってしまう。
+  set_toggle_keymap("t", st.cfg.terminal.enabled, "vime: toggle japanese input (terminal)")
+  set_toggle_keymap("c", st.cfg.cmdline.enabled, "vime: toggle japanese input (cmdline)")
 
   -- 挿入モードを抜けたら未確定を確定する(ノーマルモード編集を安全にする)
   local group = api.nvim_create_augroup("vime", { clear = true })

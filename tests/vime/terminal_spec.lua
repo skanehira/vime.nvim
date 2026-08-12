@@ -284,4 +284,34 @@ describe("vime end-to-end (terminal)", function()
 
     vime.toggle()
   end)
+
+  -- terminal が無効なら toggle キー自体も "t" には張らない。張ってしまうと、日本語入力に
+  -- 使えないのにモード表示だけ出て、terminal-job モードでの <C-j>(PTY への送出)が奪われる。
+  -- cmdline 側には「実際に <C-j> を押して本来の動作(改行 = 実行)に戻ること」の回帰テストが
+  -- あるが、terminal は headless では terminal-job モード("t")へ入れない(上部の注記)ため、
+  -- ここではマッピングの有無までしか検証できない。
+  it("maps the toggle key in terminal-job mode when terminal.enabled is true", function()
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
+    assert.are.equal("vime: toggle japanese input (terminal)", vim.fn.maparg("<C-j>", "t", false, true).desc)
+  end)
+
+  it("does not map the toggle key in terminal-job mode when terminal.enabled is false", function()
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = false } })
+    -- 挿入モードの toggle は無効設定でも常に張られる(setup が走ったことの裏付け)
+    assert.are.equal("vime: toggle japanese input", vim.fn.maparg("<C-j>", "i", false, true).desc)
+    assert.are.same({}, vim.fn.maparg("<C-j>", "t", false, true))
+  end)
+
+  it("removes its terminal-job toggle mapping when setup runs again with terminal.enabled = false", function()
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = true } })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = false } })
+    assert.are.same({}, vim.fn.maparg("<C-j>", "t", false, true))
+  end)
+
+  it("keeps a user's own terminal-job mapping on the toggle key when terminal.enabled is false", function()
+    vim.keymap.set("t", "<C-j>", "<Nop>", { desc = "user mapping" })
+    vime.setup({ anthy = { lib = LIB }, terminal = { enabled = false } })
+    assert.are.equal("user mapping", vim.fn.maparg("<C-j>", "t", false, true).desc)
+    pcall(vim.keymap.del, "t", "<C-j>")
+  end)
 end)

@@ -337,6 +337,15 @@ describe("vime end-to-end", function()
     -- 未確定 preedit はそのままバッファに反映される(既定なら "かき")
     assert.are.equal("きか", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
   end)
+
+  -- terminal/cmdline は opt-in(既定 false)。既定の setup() では toggle キーを挿入モードに
+  -- しか張らず、コマンドライン/terminal-job モードでの <C-j> 本来の動作を奪わない。
+  it("maps the toggle key only in insert mode by default (cmdline/terminal are opt-in)", function()
+    vime.setup({ anthy = { lib = LIB } })
+    assert.are.equal("vime: toggle japanese input", vim.fn.maparg("<C-j>", "i", false, true).desc)
+    assert.are.same({}, vim.fn.maparg("<C-j>", "c", false, true))
+    assert.are.same({}, vim.fn.maparg("<C-j>", "t", false, true))
+  end)
 end)
 
 describe("vime candidate popup", function()
