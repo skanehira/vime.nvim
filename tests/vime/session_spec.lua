@@ -657,4 +657,30 @@ describe("vime.session learned-piece queue", function()
     assert.are.equal("カク", s:commit_katakana()) -- 確定テキストは従来どおり素通し
     assert.are.same({}, s:drain_learned()) -- 読みがひらがなでないため piece 記録なし
   end)
+
+  -- guided 印: 変換エピソードで既定から表示を変えて確定した piece に付く。
+  -- anthy の commit 学習だけでは分割境界の再現が保証できない確定(init の連結登録 triggers)の
+  -- 判定材料。専用読み(おはぎ/そばかた)はこの spec の他テストで使わない。
+  it("marks a piece guided when the confirmed text differs from the convert default", function()
+    local s = new()
+    type_in(s, "ohagi")
+    s:start_conversion()
+    local default_text = table.concat(s:segments().list)
+    s:next_candidate() -- 既定から注目文節の候補を変える
+    assert.are_not.equal(default_text, table.concat(s:segments().list))
+    s:commit()
+    local pieces = s:drain_learned()
+    assert.are.equal(1, #pieces)
+    assert.is_true(pieces[1].guided)
+  end)
+
+  it("does not mark a default-candidate commit guided", function()
+    local s = new()
+    type_in(s, "sobakata")
+    s:start_conversion()
+    s:commit() -- 既定候補のまま確定
+    local pieces = s:drain_learned()
+    assert.are.equal(1, #pieces)
+    assert.is_nil(pieces[1].guided)
+  end)
 end)

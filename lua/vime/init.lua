@@ -220,13 +220,14 @@ local function chain_reset()
   c.parts = {}
 end
 
--- 確定後に session が記録した piece({yomi,text} 列)を連鎖へ回収する。
+-- 確定後に session が記録した piece({yomi,text,guided?} 列)を連鎖へ回収する。
 --   row/start_col = 今回の確定における未確定領域開始位置、text = 今回の確定全文
+-- guided = 変換エピソードでユーザーが既定から表示を変えて確定した印(session.lua 参照)。
 -- piece 連結と text が一致しない(latin 混在等)回は連鎖を作らない。前回の末尾位置と
 -- start_col が続く(同じ buf/行で隣接)ときだけ連鎖を延ばし、それ以外ではここから開始。
--- 2 piece 以上で連結読み→連結文言を私的辞書に登録する(PoC 実測: register_word は
--- 同一プロセスの次 convert から先頭候補になる)。語数/読み長に上限を設け、長すぎる
--- 組合せの登録を抑止する。
+-- 2 piece 以上、または guided 単一 piece の確定で連結読み→連結文言を私的辞書に登録する
+-- (PoC 実測: register_word は同一プロセスの次 convert から先頭候補になる)。語数/読み長に
+-- 上限を設け、長すぎる組合せの登録を抑止する。
 local CHAIN_MAX_PARTS = 8
 local CHAIN_MAX_YOMI_CHARS = 12
 local function chain_note(row, start_col, text, parts)
@@ -253,12 +254,17 @@ local function chain_note(row, start_col, text, parts)
     chain_reset()
   end
   for _, p in ipairs(parts) do
-    c.parts[#c.parts + 1] = { yomi = p.yomi, text = p.text }
+    c.parts[#c.parts + 1] = { yomi = p.yomi, text = p.text, guided = p.guided }
   end
   c.buf = buf
   c.row = row
   c.col = start_col + #text -- 確定 text に改行は含まれない(literal 素通しが別に処理)ので byte col で進む
-  if #c.parts < 2 or #c.parts > CHAIN_MAX_PARTS then
+  if #c.parts > CHAIN_MAX_PARTS then
+    return
+  end
+  -- 単一 piece は guided(既定から変えて確定)のときだけ登録する。無変換の素確定/既定どおり
+  -- 変換の素 commit は anthy の commit 学習に任せる(むやみな私的辞書登録を抑止)。
+  if #c.parts == 1 and not c.parts[1].guided then
     return
   end
   local yomis, texts = {}, {}

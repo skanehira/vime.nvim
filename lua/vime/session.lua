@@ -102,6 +102,7 @@ local function reset_composing(self)
   self.seg_index = 1
   self.choices = {}
   self._active_kana_idx = nil
+  self._default_text = nil
 end
 
 -- 末尾の kana セグメントを返す。無ければ新規作成して末尾に追加する。
@@ -255,12 +256,17 @@ end
 -- 確定 piece(読み→文言)をコントローラ(init.lua の連鎖学習)へ渡すキューに積む。
 -- 読みが純粋なひらがなでない piece(未完英字残り・カスタム table のカタカナ読み等)は
 -- anthy に渡せないため記録しない。
-local function record_learn(self, yomi, text)
+-- guided=true は「変換エピソードで表示が anthy の既定からユーザー操作(候補選択・
+-- 明示 resize)で変わったまま確定した」印。init.lua の連鎖学習は 1 piece でも
+-- 連結登録(私的辞書)する。anthy の commit 学習は候補を強めるだけで分割境界そのものは
+-- 毎 convert で辞書から再探索されるため、誘導された確定は連結登録でしか再現が保証できない
+-- (PoC 実測: 学習・私的辞書の状態次第では文節 commit だけでは次回に変換結果が再現されない)。
+local function record_learn(self, yomi, text, guided)
   if not yomi or not text or text == "" or not is_all_hiragana(yomi) then
     return
   end
   self._learn = self._learn or {}
-  self._learn[#self._learn + 1] = { yomi = yomi, text = text }
+  self._learn[#self._learn + 1] = { yomi = yomi, text = text, guided = guided or nil }
 end
 
 -- これまでに溜まった確定 piece を取り出してキューを空にする(init.lua の連鎖学習が回収する)。
@@ -322,6 +328,13 @@ local function start_converting_at(self, idx)
     self.anthy = self._anthy.new_session()
   end
   self._segments = self.anthy:convert(yomi)
+  -- 変換直後の既定候補連結。確定時にこれと違っていれば「ユーザーが誘導した変換」
+  -- (候補選択・resize)と見なす(commit_active_kana の guided 判定)。
+  local first = {}
+  for _, seg in ipairs(self._segments) do
+    first[#first + 1] = seg.best
+  end
+  self._default_text = table.concat(first)
   self.seg_index = 1
   self.choices = {}
   for i = 1, #self._segments do
@@ -336,8 +349,9 @@ end
 local function commit_active_kana(self)
   local text = table.concat(self:segments().list)
   local yomi = romaji.to_kana(self._buf[self._active_kana_idx].romaji, self._romaji_table)
+  local guided = self._default_text ~= nil and text ~= self._default_text
   self.anthy:commit(self.choices)
-  record_learn(self, yomi, text)
+  record_learn(self, yomi, text, guided)
   self._buf[self._active_kana_idx] = { kind = "confirmed", text = text }
   self._active_kana_idx = nil
   self._segments = nil

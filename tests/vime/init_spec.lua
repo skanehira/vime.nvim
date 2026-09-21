@@ -1319,4 +1319,43 @@ describe("vime commit learning", function()
     vime.on_cancel()
     vime.on_cancel()
   end)
+
+  it("learns a single guided conversion so the same reading reproduces the picked text", function()
+    -- ユーザー報告: 「woshiraitai」を既定 Space 変換すると「をしら痛い」等になり、
+    -- 候補を選んで変えて確定しても次回は同じ既定に戻ってしまう(連語になっていない)。
+    -- 誘導(guided)確定 = 既定から表示を変えた確定は 1 piece でも連結登録し、
+    -- 次回変換で再現させる(anthy の commit 学習だけでは境界再現が保証できない)。
+    -- 辞書の汚染を模倣するため、先に "woshiraitai" が「小し…」へ切れる競合語を登録する。
+    local anthy = require("vime.anthy")
+    anthy.register_word("woshira", "小し")
+
+    local default_text
+    local guided_text
+
+    -- 学習前の既定を控える
+    local buf = reattach()
+    type_in("woshiraitai")
+    vime.on_convert()
+    default_text = line1(buf)
+    vime.on_cancel()
+    vime.on_cancel()
+
+    -- 変換して次候補へ送り既定から変えて確定(誘導確定)
+    local buf1 = reattach()
+    type_in("woshiraitai")
+    vime.on_convert()
+    vime.on_next_candidate()
+    guided_text = line1(buf1)
+    vime.on_commit()
+    assert.are_not.equal(default_text, guided_text) -- 実際に既定から変わっていること
+    assert.are.equal(guided_text, line1(buf1))
+
+    -- 次回: 同じ読みを変換すると前回確定した文言が先頭に戻る(=誘導確定が学習されている)
+    local buf2 = reattach()
+    type_in("woshiraitai")
+    vime.on_convert()
+    assert.are.equal(guided_text, line1(buf2))
+    vime.on_cancel()
+    vime.on_cancel()
+  end)
 end)
