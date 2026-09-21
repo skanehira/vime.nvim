@@ -30,7 +30,8 @@ kyouhaiitenkidane → きょうはいいてんきだね → 今日はいい天�
 - 候補選択（Space/C-n/C-p で順送り・逆送り、候補一覧 popup 表示）
 - 文節の移動・伸縮
 - 学習（全文節 commit による記憶）
-- カタカナ確定（F7）
+- カタカナ確定（F7。anthy の候補経由で確定し学習も走る。次回以降その読みの先頭候補になる）
+- 連続確定の連鎖学習（F7・補完・変換確定を同じ行で隣接して重ねると、連結読み→連結文言を私的辞書登録。次回以降その全文読みを変換すると連結文言が先頭に出る）
 - 英小文字確定（F10。入力したローマ字をそのまま確定。例: ふぉお → foo）
 - ユーザー辞書（SKK 辞書 JISYO JSON を CLI で anthy 私的辞書へ取り込み。送りなし=名詞のみ。§8.2）
 - 設定インターフェース（libanthy パス・キーマップ・ハイライト・ローマ字テーブル）
@@ -167,9 +168,14 @@ s:commit_step()             -- converting なら現 kana だけを確定し、�
                             -- (on_commit が使う。複数 kana セグメントを含むプリエディットは
                             -- Enter を複数回押して順に確定していく)
 s:commit_with_replacement(word) -- 注目文節を辞書登録した word で置き換えて全文節を確定(C-r 用)
-s:commit_katakana()         -- 現在の読みをカタカナ化して確定
+s:commit_katakana()         -- 現在の読みをカタカナ化して確定。anthy の全文1文節候補から
+                            -- カタカナ一致候補を commit して学習も走らせる(候補に無ければ学習スキップ)
 s:commit_alphabet()         -- 入力したローマ字(英小文字)をそのまま確定
-s:cancel()                  -- converting→変換前のかなへ戻す、composing→未確定破棄
+s:learn_piece(piece)        -- {yomi,text} 1件を単一文節として anthy に学習 commit(候補一致時だけ)。
+                            -- commit_katakana が内部で使用
+s:drain_learned()           -- 確定 piece({yomi,text})キューを取り出して空にする。commit 系確定
+                            -- (変換/補完/F7/素 kana 確定)がキューに記録し、init.lua の連鎖学習が回収する
+s:cancel()                  -- converting→変換前のかなへ戻す、composing→未確定破棄(学習キューも破棄)
 s:clear()                   -- 未確定・変換中を完全破棄して空の composing へ
 ```
 
@@ -342,7 +348,7 @@ DIRECT はコントローラ層の状態（session は ON の間だけ存在）�
 | `Enter`            | COMPOSING            | 全セグメント(kana+latin)を連結して確定                                                                          |
 | `Enter`            | CONVERTING           | 現 kana の変換を確定（全文節 commit＝学習）し、残りの kana/latin を順次確定                                     |
 | `Enter`            | 未確定なし           | 通常の改行を挿入                                                                                                |
-| `F7`               | COMPOSING/CONVERTING | 読みをカタカナに変換して確定                                                                                    |
+| `F7`               | COMPOSING/CONVERTING | 読みをカタカナに変換して確定（anthy 候補経由で学習も走る。次回その読みでカタカナが先頭）                      |
 | `F10`              | COMPOSING/CONVERTING | 入力したローマ字（英小文字）に変換して確定                                                                      |
 | `BS` / `C-h`       | COMPOSING            | かな単位で1単位削除（latin/英字ランは1byte）。空 latin はセグメント削除（ASCII モードは継続、英字ランは抜ける） |
 | `C-g` / `Esc`      | CONVERTING           | 変換を取り消し、変換前のかな(COMPOSING)へ戻す                                                                   |
@@ -374,6 +380,12 @@ feasibility 検証（旧 PoC）で確定し、回帰しやすい要点。コー�
 - **ASCII モードと anthy の分離**: ASCII モード中の入力は **anthy に渡さない**。Space 変換時も latin セグメントは **anthy 入力に含めない**。kana セグメントを 1 個ずつ `anthy.convert` し、latin セグメントは間に挟まれた byte 列としてプリエディットに残す（連結すると latin の位置を復元できなくなるため）。
 - **ASCII モード OFF はトグルキーのみ**。COMPOSING で ascii_toggle を 2 連打すると「ASCII ON → ASCII OFF」になり、latin セグメントは空のまま閉じられる。ASCII モード中に latin を BS で全削除してもモードは継続する（タイプミスを直して入力再開できるように）。次の入力で新規 latin セグメントが自動で開かれる。ASCII モード中に ascii_toggle 文字をリテラル入力する手段はない（必要なら設定で別文字に変えるか、一旦 OFF にしてから打つ）。
 - **学習は kana セグメント単位**。複数の kana セグメントを含むプリエディットを確定する場合、各 kana セグメントの「全文節 commit」が **順次** 走る。各 commit ごとに anthy が学習する（kana セグメント間で文節を跨いだ変換はしない）。
+- **確定連鎖学習（F7・補完・変換確定の連結語）**。separate な確定 episode を同じ行で**隣接して**重ねると、累积した「連結読み→連結文言」を `anthy.register_word`（私的辞書・freq 1000）に登録する。これで「を」+「知りたい」を別々に確定したユーザーは、次回 `woshiraitai` を `<Space>` 一発で「を知りたい」にできる（anthy の部分単位学習では全文読みの分割は習得されないため）。実装は `init.lua` の `chain_note(row, start_col, text, parts)`:
+  - 素材は `session` が確定ごとにキューへ積む piece（`{yomi, text}`。`session:drain_learned()` で回収）。読みが純粋なひらがなでない piece（カスタムテーブルのカタカナ読み・未完英字）は記録しない。piece 連結が今回の確定全文と一致しない回（latin 混在等）は連鎖を作らない。
+  - 連鎖継続の条件は**位置の隣接**（同じ buffer・同じ行・`start_col == 前回確定末尾 + #text`）だけ。カーソル移動・手入力・素 backspace で削られる等のギャップは次回 note 時の不一致として自動的に検出され、連鎖はその地点からやり直す。明示的な断ち切りは cancel（`<C-g>`・Esc）/`C-w`/`C-u`/backend 切替（buffer・terminal・cmdline）/IME OFF/`InsertLeave`。terminal/cmdline backend は `row`/`start_col` を持たないので連鎖しない。
+  - nvim-cmp 連携（`M.commit_completion`。既定無効のレガシー経路）は連鎖対象外: 記録された piece は回収して破棄する。
+  - 登録上限: piece 数 ≤ 8・連結読み ≤ 12 文字（散文の連続確定で長文節が辞書に溜まるのを抑止）。同一連結（読み+文言）の再登録は `st.chain.registered` で抑止する。
+- **F7 カタカナ確定は anthy 候補経由で学習する**。`session:commit_katakana()` は読みを全文 1 文節へ resize した候補列からカタカナ一致候補を `anthy_commit_segment` する（PoC 実測: 次回 convert で best に昇格。候補にカタカナが無ければ commit_completion と同じく学習スキップ、確定テキストと返り値は従来どおり `romaji.to_katakana` の結果）。ローマ字→カタカナの素変換だけ見ていた旧実装は学習副作用がゼロだったので、F7 の読みを他テスト/機能で再利用する際は学習副作用を前提にすること。
 - **文節操作系キーは CONVERTING 中のみ vime に奪われる**。`C-f`/`C-b`/`C-n`/`C-p`/`C-o`/`C-i` は CONVERTING 入退場時に動的に attach/detach される（`init.sync_converting_keymap()`）。COMPOSING や ASCII モードで vime がこれらを握り潰すと、ユーザーが insert モードで割り当てたカーソル移動マッピング等が死ぬので、必ず converting 限定で attach すること。新しく「converting でのみ意味があるキー」を増やすときは `keymap.CONVERTING_ONLY` に追加する。
 - **確定テキストは feedkeys でタイプ入力として流し、native の redo に載せる（dot repeat）**。挿入モード中の `finalize(text)` は「preedit を API で削除 → `text` と `<C-G>u` を 1 回の `nvim_feedkeys` で流す」経路を取る。API 編集（`nvim_buf_set_text`）は Vim の redo バッファに記録されないため、確定テキストを API で書くと `.`（dot repeat）が確定を再現できない。feedkeys で「タイプされた入力」として流すと redo に載り、`ciwきょう<CR><Esc>` → `.` が「単語削除＋きょう挿入」として Vim 本来の動作で再現され、count（`3.`）や `a`/`A`/`o` の位置も native に効く（operatorfunc は汚さない）。フラグは `"in"` ＋ `escape_ks=true`:
   - `"i"`（typeahead 先頭挿入）: 後続の `<Esc>` より先に確定テキストを処理する。末尾追加にすると `<Esc>` の後で処理されノーマルモードで暴発する。
