@@ -283,6 +283,7 @@ describe("vime.session CONVERTING with mixed kana/latin", function()
     s:start_conversion()
     s:commit_step() -- kyou 確定 → kana(wo) 自動 converting
     local final = s:commit_step() -- wo 確定 → 全終了
+    ---@cast final -nil -- 全 kana 確定済みなら連結確定テキストが確定して返る(この test の前提)
     assert.are.equal("composing", s:state())
     assert.are.equal("", s:preedit())
     assert.is_true(final:find("A", 1, true) ~= nil)
@@ -391,9 +392,11 @@ describe("vime.session CONVERTING (real anthy)", function()
 
   it("commits the reading as katakana even during conversion", function()
     local s = new()
-    type_in(s, "kyouhaii") -- 読み: きょうはいい
+    -- 学習副作用の飛散を防ぐため、この spec の他テストで使わない読みを選ぶ
+    -- (commit_katakana は候補経由で anthy に学習する)。
+    type_in(s, "kureka") -- 読み: くれか
     s:start_conversion()
-    assert.are.equal("キョウハイイ", s:commit_katakana())
+    assert.are.equal("クレカ", s:commit_katakana())
     assert.are.equal("composing", s:state())
     assert.are.equal("", s:preedit())
   end)
@@ -619,5 +622,39 @@ describe("vime.session commit_completion", function()
     type_in(s2, "kikai")
     local best = s2:completion_candidates()[1]
     assert.are.equal(target.text, best.text) -- 学習した候補がベストに変化
+  end)
+end)
+
+-- 確定 piece キュー(連鎖学習の素材回収)。commit_completion/commit_katakana が anthy/私的辞書へ
+-- 副作用を書きうるため、ファイル末尾の別 describe に寄せる(spec 単位の HOME 隔離を壊さない)。
+-- 読みはこの spec の他テストで使わないもの(toshie)を使い、辞書依存のアサーションを避ける。
+describe("vime.session learned-piece queue", function()
+  it("drain_learned returns the commit pieces in order and empties the queue", function()
+    local s = new()
+    type_in(s, "toshie")
+    local items = s:completion_candidates()
+    s:commit_completion(items[1])
+    local pieces = s:drain_learned()
+    assert.are.equal(1, #pieces)
+    assert.are.equal(items[1].yomi, pieces[1].yomi)
+    assert.are.equal(items[1].text, pieces[1].text)
+    assert.are.same({}, s:drain_learned()) -- 回収済みで空
+  end)
+
+  it("clear() discards queued pieces so discarded input is not learned", function()
+    local s = new()
+    type_in(s, "toshie")
+    local items = s:completion_candidates()
+    s:commit_completion(items[1])
+    s:clear()
+    assert.are.same({}, s:drain_learned())
+  end)
+
+  it("keeps non-hiragana (custom table katakana) readings out of the queue and learning", function()
+    local custom = { ka = "カ", ku = "ク" }
+    local s = session.new(anthy, { romaji_table = custom })
+    type_in(s, "kaku") -- カク
+    assert.are.equal("カク", s:commit_katakana()) -- 確定テキストは従来どおり素通し
+    assert.are.same({}, s:drain_learned()) -- 読みがひらがなでないため piece 記録なし
   end)
 end)

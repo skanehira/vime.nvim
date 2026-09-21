@@ -969,6 +969,7 @@ describe("vime completion integration", function()
     end
     local ctx = vime.completion_context()
     assert.is_not_nil(ctx)
+    ---@cast ctx -nil -- luassert のアサーションでは lsp の型が絞れないため注釈で明示(実行時変更なし)
     assert.are.equal(0, ctx.row)
     assert.are.equal(0, ctx.start_col)
     assert.are.equal(#"きょうはいい", ctx.len) -- byte 長
@@ -983,6 +984,7 @@ describe("vime completion integration", function()
       vime.on_input(ch)
     end
     local ctx = vime.completion_context()
+    ---@cast ctx -nil -- composing+未確定ありの前提のため非 nil(実行時変更なしの注釈のみ)
     local item = ctx.items[1]
     -- cmp の確定は挿入モードで起こり、カーソルは行末(確定テキストの直後)へ置かれる。
     -- ノーマルモードだと行末のマルチバイト文字手前へクランプされ再現にならないため挿入モードにする。
@@ -1214,5 +1216,107 @@ describe("vime built-in completion", function()
     assert.are.equal("あした", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
     vime.on_backspace() -- 2 回目から通常のかな削除
     assert.are.equal("あし", api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+  end)
+end)
+
+-- 確定連鎖学習(F7 の anthy 学習 + 連続確定の連結私的辞書登録)。anthy 学習/私的辞書は
+-- ディスクへ永続化し spec ファイル単位の HOME 隔離を共有するため、学習 it はファイル末尾に置く。
+-- 使用読み(くれか/しろ)は他のテストで使わない。事前/事後の相対変化で検証し辞書依存を避ける。
+describe("vime commit learning", function()
+  local function feed(keys)
+    api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), "tx", false)
+  end
+
+  local function fresh_buf()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_set_current_buf(buf)
+    api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    api.nvim_win_set_cursor(0, { 1, 0 })
+    return buf
+  end
+
+  local function type_in(str)
+    for ch in str:gmatch(".") do
+      vime.on_input(ch)
+    end
+  end
+
+  local function line1(buf)
+    return api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+  end
+
+  -- 単一 episode の変換確認を direct handler で行うための再アタッチ。
+  -- 連続確定の連鎖自体は実際の挿入モード(feedkeys 経路)でしか位置が連続にならないため、
+  -- 確定シーケンスは 1 本の feed で流す(headless で feedkeys は normal 開始の 1 本のみ同期実行)。
+  local function reattach()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    local buf = fresh_buf()
+    vime.toggle()
+    return buf
+  end
+
+  before_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+    -- 自前補完 popup はこのテストでは不要なので切る(素確定と F7 のみ)
+    vime.setup({ anthy = { lib = LIB }, mode_notify = { enabled = false }, completion = { enabled = false } })
+  end)
+
+  after_each(function()
+    if vime.is_enabled() then
+      vime.toggle()
+    end
+  end)
+
+  it("learns an F7 katakana commit so the same reading converts to katakana first", function()
+    local buf = fresh_buf()
+    vime.toggle()
+
+    -- 学習前: くれか+Space の先頭候補はまだカタカナではない(相対検証の前提)
+    type_in("kureka")
+    vime.on_convert()
+    assert.are_not.equal("クレカ", line1(buf))
+    vime.on_cancel() -- 変換取消
+    vime.on_cancel() -- 未確定破棄
+
+    -- F7 でカタカナ確定 → anthy へ学習(commit 候補経由)
+    type_in("kureka")
+    vime.on_katakana()
+    assert.are.equal("クレカ", line1(buf))
+
+    -- 次回: 同じ読みを Space で変換すると先頭がカタカナ
+    local buf2 = reattach()
+    type_in("kureka")
+    vime.on_convert()
+    assert.are.equal("クレカ", line1(buf2))
+    vime.on_cancel()
+    vime.on_cancel()
+  end)
+
+  it("chains adjacent commits and learns the combined reading as a phrase", function()
+    local buf = fresh_buf()
+    vime.toggle()
+
+    -- 学習前: siro+Space の先頭はまだ「しろ」ではない(相対検証の前提)
+    type_in("siro")
+    vime.on_convert()
+    assert.are_not.equal("しろ", line1(buf))
+    vime.on_cancel()
+    vime.on_cancel()
+
+    -- 「し」と「ろ」を隣接連続確定(実際の挿入モード経路)→ 連結「しろ」→「しろ」を登録
+    feed("isi<CR>ro<CR><Esc>")
+    assert.are.equal("しろ", line1(buf))
+
+    -- 次回: siro+Space は連結確定した「しろ」が先頭
+    local buf2 = reattach()
+    type_in("siro")
+    vime.on_convert()
+    assert.are.equal("しろ", line1(buf2))
+    vime.on_cancel()
+    vime.on_cancel()
   end)
 end)

@@ -228,6 +228,67 @@ function Session:backspace()
   end
 end
 
+-- 文字列が全てひらがな(U+3041-U+3096)なら true。anthy の入力はひらがなが前提なので、
+-- カスタムローマ字テーブルで読みがカタカナ等になった piece は convert に渡さない(学習対象外)。
+local function is_all_hiragana(s)
+  if s == "" then
+    return false
+  end
+  local i = 1
+  while i <= #s do
+    if s:byte(i) ~= 0xE3 then
+      return false
+    end
+    local b2, b3 = s:byte(i + 1, i + 2)
+    if not (b2 and b3) or b2 < 0x80 or b2 > 0xBF or b3 < 0x80 or b3 > 0xBF then
+      return false
+    end
+    local cp = (0xE3 - 0xE0) * 0x1000 + (b2 - 0x80) * 0x40 + (b3 - 0x80)
+    if cp < 0x3041 or cp > 0x3096 then
+      return false
+    end
+    i = i + 3
+  end
+  return true
+end
+
+-- 確定 piece(読み→文言)をコントローラ(init.lua の連鎖学習)へ渡すキューに積む。
+-- 読みが純粋なひらがなでない piece(未完英字残り・カスタム table のカタカナ読み等)は
+-- anthy に渡せないため記録しない。
+local function record_learn(self, yomi, text)
+  if not yomi or not text or text == "" or not is_all_hiragana(yomi) then
+    return
+  end
+  self._learn = self._learn or {}
+  self._learn[#self._learn + 1] = { yomi = yomi, text = text }
+end
+
+-- これまでに溜まった確定 piece を取り出してキューを空にする(init.lua の連鎖学習が回収する)。
+function Session:drain_learned()
+  local q = self._learn or {}
+  self._learn = nil
+  return q
+end
+
+-- composing からの素確定(未変換のかなそのまま)を読み=文言の piece として記録する。
+-- 素確定だけでも連鎖の素材になる(例: 「を」をそのまま確定 → 後続の「知りたい」と連結学習)。
+-- latin/confirmed が混在する buf は連結読みが純かなでなくなるので記録しない(位置の連続性
+-- 検査は init.lua の連鎖側で行う)。
+local function record_raw_kana(self)
+  if #self._buf == 0 then
+    return
+  end
+  local parts = {}
+  for _, seg in ipairs(self._buf) do
+    if seg.kind ~= "kana" then
+      return
+    end
+    parts[#parts + 1] = romaji.to_kana(seg.romaji, self._romaji_table)
+  end
+  local kana = table.concat(parts)
+  record_learn(self, kana, kana)
+end
+
 -- 全 kana セグメントのローマ字を連結して返す(commit_katakana / commit_alphabet 用)。
 local function concat_kana_romaji(self)
   local parts = {}
@@ -274,7 +335,9 @@ end
 -- 注目 kana を学習 commit して confirmed セグメントに置換し、確定テキストを返す。
 local function commit_active_kana(self)
   local text = table.concat(self:segments().list)
+  local yomi = romaji.to_kana(self._buf[self._active_kana_idx].romaji, self._romaji_table)
   self.anthy:commit(self.choices)
+  record_learn(self, yomi, text)
   self._buf[self._active_kana_idx] = { kind = "confirmed", text = text }
   self._active_kana_idx = nil
   self._segments = nil
@@ -426,6 +489,7 @@ function Session:commit()
     reset_composing(self)
     return text
   end
+  record_raw_kana(self)
   local text = concat_all(self)
   reset_composing(self)
   return text
@@ -445,6 +509,7 @@ function Session:commit_step()
     reset_composing(self)
     return text
   end
+  record_raw_kana(self)
   local text = concat_all(self)
   reset_composing(self)
   return text
@@ -452,11 +517,14 @@ end
 
 -- 未確定・変換中を完全に破棄して空の composing に戻す。
 function Session:clear()
+  self._learn = nil
   reset_composing(self)
 end
 
 -- 現在の読み(かな)をカタカナに変換して確定する文字列を返す。
 -- composing/converting どちらでも読み(romaji 由来)で動く。英字ラン/空なら "" を返す。
+-- 確定時に anthy へ全文節 commit して学習させる(PoC 実測: カタカナ候補の commit は
+-- 次回以降の convert で best に昇格する)。候補にカタカナが無ければ学習はスキップ。
 function Session:commit_katakana()
   if is_latin_tail(self) then
     return ""
@@ -465,8 +533,11 @@ function Session:commit_katakana()
   if reading == "" then
     return ""
   end
+  local kata = romaji.to_katakana(reading)
+  self:learn_piece({ yomi = reading, text = kata })
+  record_learn(self, reading, kata)
   reset_composing(self)
-  return romaji.to_katakana(reading)
+  return kata
 end
 
 -- 入力したローマ字(英小文字)をそのまま確定する文字列を返す(例: ふぉお → foo)。
@@ -516,6 +587,34 @@ local function resize_to_single_segment(self, segs, yomi)
     segs = self.anthy:resize(1, total - segs[1].len)
   end
   return segs
+end
+
+-- F7 カタカナ確定の学習。{ {yomi,text} } 1 piece を受け、yomi を convert して
+-- 全文 1 文節へ伸長し text 一致の候補 index を commit(=学習)。text が候補に無ければ
+-- 例外を投げずスキップ(commit_completion と同じ方針)。commit_katakana からのみ呼ぶ。
+-- (複数 piece の連鎖確定は init.lua が私的辞書登録で学ぶ。ここは単一 piece 専用。)
+function Session:learn_piece(piece)
+  if not piece then
+    return
+  end
+  local yomi, text = piece.yomi, piece.text
+  if not is_all_hiragana(yomi) or not text or text == "" then
+    return
+  end
+  if not self.anthy then
+    self.anthy = self._anthy.new_session()
+  end
+  local segs = self.anthy:convert(yomi)
+  segs = resize_to_single_segment(self, segs, yomi)
+  if #segs ~= 1 then
+    return
+  end
+  for i, cand in ipairs(segs[1].candidates) do
+    if cand == text then
+      self.anthy:commit({ i })
+      return
+    end
+  end
 end
 
 -- composing 中の補完(nvim-cmp)候補。_buf が単一 kana セグメントのみのときに限り、
@@ -583,6 +682,7 @@ function Session:commit_completion(item)
     end
     self.anthy:commit(choices)
   end
+  record_learn(self, item.yomi, item.text)
   reset_composing(self)
   return item.text
 end
@@ -590,6 +690,7 @@ end
 -- 取消。converting なら注目 kana の変換を取り消し composing へ戻す(confirmed/latin は保持)。
 -- composing なら全未確定(buf)を破棄。
 function Session:cancel()
+  self._learn = nil -- 取消 = 連鎖の素材も捨てる(init 側で chain_reset 相当)
   if self._state == "converting" then
     self._state = "composing"
     self._segments = nil

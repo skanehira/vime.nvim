@@ -62,6 +62,12 @@ local st = {
   completion = { items = nil, index = 0 },
   converting_keys_attached = false, -- converting 限定キーマップの現状(変化時のみ keymap を触る)
   completion_keys_attached = false, -- 補完限定キーマップ(C-n/C-p)の現状
+  -- 確定連鎖学習の状態。連続する確定(F7・補完・変換確定)で、後続が直前の確定直後へ
+  -- 隣接して入るときだけ piece を積み、2 件以上溜まったら連結読み→連結文言を
+  -- anthy 私的辞書へ登録する(次回以降、連結読みを <Space> 一発で連結文言にできる)。
+  -- 隣接条件が崩れる(別位置・別バッファ・素 backspace で削る等)か cancel/移動で断ち切る。
+  -- registered は同じ連結(読み+文言)の再登録重複を防ぐ。
+  chain = { buf = nil, row = nil, col = nil, parts = {}, registered = {} },
 }
 
 -- handlers() ローカルテーブル生成関数の forward declare。
@@ -205,6 +211,73 @@ local function select_completion(delta)
   place_cursor()
 end
 
+-- 確定連鎖学習: 連鎖を断ち切る(parts のみ。registered の重複防止キャッシュは保つ)。
+local function chain_reset()
+  local c = st.chain
+  c.buf = nil
+  c.row = nil
+  c.col = nil
+  c.parts = {}
+end
+
+-- 確定後に session が記録した piece({yomi,text} 列)を連鎖へ回収する。
+--   row/start_col = 今回の確定における未確定領域開始位置、text = 今回の確定全文
+-- piece 連結と text が一致しない(latin 混在等)回は連鎖を作らない。前回の末尾位置と
+-- start_col が続く(同じ buf/行で隣接)ときだけ連鎖を延ばし、それ以外ではここから開始。
+-- 2 piece 以上で連結読み→連結文言を私的辞書に登録する(PoC 実測: register_word は
+-- 同一プロセスの次 convert から先頭候補になる)。語数/読み長に上限を設け、長すぎる
+-- 組合せの登録を抑止する。
+local CHAIN_MAX_PARTS = 8
+local CHAIN_MAX_YOMI_CHARS = 12
+local function chain_note(row, start_col, text, parts)
+  if #parts == 0 then
+    return
+  end
+  if not row or not start_col then
+    -- 位置を持たない backend(terminal/cmdline)では連鎖できない。ここで断つ。
+    -- (terminal/cmdline は補完非対応。buffer 相当の連続入力は稀なので素朴に破棄する)
+    chain_reset()
+    return
+  end
+  local cat = {}
+  for i, p in ipairs(parts) do
+    cat[i] = p.text
+  end
+  local c = st.chain
+  if table.concat(cat) ~= text then
+    chain_reset()
+    return
+  end
+  local buf = st.backend and st.backend.buf
+  if not (buf and c.buf == buf and c.row == row and c.col == start_col) then
+    chain_reset()
+  end
+  for _, p in ipairs(parts) do
+    c.parts[#c.parts + 1] = { yomi = p.yomi, text = p.text }
+  end
+  c.buf = buf
+  c.row = row
+  c.col = start_col + #text -- 確定 text に改行は含まれない(literal 素通しが別に処理)ので byte col で進む
+  if #c.parts < 2 or #c.parts > CHAIN_MAX_PARTS then
+    return
+  end
+  local yomis, texts = {}, {}
+  for _, p in ipairs(c.parts) do
+    yomis[#yomis + 1] = p.yomi
+    texts[#texts + 1] = p.text
+  end
+  local yomi, word = table.concat(yomis), table.concat(texts)
+  if yomi == "" or vim.str_utfindex(yomi) > CHAIN_MAX_YOMI_CHARS then
+    return
+  end
+  local key = yomi .. "\1" .. word
+  if c.registered[key] then
+    return
+  end
+  c.registered[key] = true
+  anthy.register_word(yomi, word) -- 最善努力: 失敗(libanthydic 未検出等)は false を返すだけ
+end
+
 -- 選択中の補完候補を確定する(anthy へ学習 + 空 composing へ)。確定したら true。
 -- 未確定領域は選択時に候補テキストへ置換済みなので、領域を確定分だけ進めるだけでよい。
 local function commit_completion_selection()
@@ -212,7 +285,8 @@ local function commit_completion_selection()
   if not (items and st.completion.index > 0) then
     return false
   end
-  st.session:commit_completion(items[st.completion.index])
+  local text = st.session:commit_completion(items[st.completion.index])
+  chain_note(st.backend.row, st.backend.start_col, text, st.session:drain_learned())
   st.backend:clear() -- 下線と popup を消す(確定テキストはインライン置換済みのまま残す)
   st.backend.start_col = st.backend.start_col + st.backend.len
   st.backend.len = 0
@@ -277,12 +351,16 @@ function M.on_input(ch)
   -- 補完候補を選択したまま次の文字を打ったら、先に選択候補を確定する(Google 日本語入力風)。
   -- 確定は同期なので、ch はそのまま新しい読みの 1 文字目として続けて処理される。
   commit_completion_selection()
+  -- 今回の読み episode の開始位置(anchor は選択確定後は選択候補の末尾へ進んでいるので
+  -- 必ず確定後に取得する)。
+  local anchor_row, anchor_col = st.backend.row, st.backend.start_col
   -- 挿入モードで確定が起きる場合は feedkeys 経路にする。session:input(ch) は確定と ch の
   -- 取り込みを同時に行い render も同期に走るが、finalize の fed テキスト挿入は非同期なので
   -- 位置がズレる。代わりに commit だけ先に済ませて確定テキストを feed し、ch を後段へ
   -- 再投入する(fed テキストの後で on_input へ戻り、sync_anchor が正しい位置へ再アンカー)。
   if in_insert_mode() and input_commits(st.session, ch) then
     local confirmed = st.session:commit()
+    chain_note(anchor_row, anchor_col, confirmed, st.session:drain_learned())
     -- ch を先に typeahead 先頭へ積み(remap 許可で自マッピングへ戻す)、その前に確定テキストを
     -- 積むことで [確定テキスト][<C-G>u][ch][後続キー] の順序を保証する。
     api.nvim_feedkeys(ch, "i", true)
@@ -291,6 +369,7 @@ function M.on_input(ch)
   end
   local confirmed = st.session:input(ch)
   if confirmed ~= "" then
+    chain_note(anchor_row, anchor_col, confirmed, st.session:drain_learned())
     finalize(confirmed)
   end
   render()
@@ -338,10 +417,12 @@ function M.on_commit()
     return
   end
   -- 混在変換: CR ごとに次 kana セグメントへ進行。継続中(nil)なら描画し直す。
+  local anchor_row, anchor_col = st.backend.row, st.backend.start_col
   local text = st.session:commit_step()
   if text == nil then
     render()
   else
+    chain_note(anchor_row, anchor_col, text, st.session:drain_learned())
     finalize(text)
   end
 end
@@ -351,6 +432,7 @@ function M.on_cancel()
     return
   end
   st.session:cancel()
+  chain_reset() -- 取消で連鎖断ち
   render()
   refresh_completion() -- 変換取消で読みへ戻ったら補完を出し直す(未確定なしなら閉じる)
 end
@@ -384,14 +466,16 @@ function M.on_backspace()
   refresh_completion()
 end
 
--- F7: 現在の読みをカタカナに変換して確定する。
+-- F7: 現在の読みをカタカナに変換して確定する(session 側で anthy 学習も行う)。
 function M.on_katakana()
   if not st.enabled then
     return
   end
   sync_anchor()
+  local anchor_row, anchor_col = st.backend.row, st.backend.start_col
   local kata = st.session:commit_katakana()
   if kata ~= "" then
+    chain_note(anchor_row, anchor_col, kata, st.session:drain_learned())
     finalize(kata)
   end
 end
@@ -417,6 +501,7 @@ function M.on_kill(key)
   if st.session:state() == "converting" or st.session:preedit() ~= "" then
     st.session:clear()
     reset_completion()
+    chain_reset() -- 未確定を捨てたので連鎖も途切れる
     render() -- 未確定を消す
   else
     st.backend:passthrough(key)
@@ -443,15 +528,19 @@ function M.on_insert_leave()
   -- 補完候補の選択中は選択候補で確定する(学習も走る)。
   if commit_completion_selection() then
     st.popup_open = false
+    chain_reset() -- 挿入終了: 連鎖は挿入セッションを跨がない
     return
   end
   reset_completion()
   local s = st.session
   if s and (s:state() == "converting" or s:preedit() ~= "") then
-    s:commit() -- 変換中なら学習。確定テキストは既にバッファにあるので残す
+    local anchor_row, anchor_col = st.backend.row, st.backend.start_col
+    local confirmed = s:commit() -- 変換中なら学習。確定テキストは既にバッファにあるので残す
+    chain_note(anchor_row, anchor_col, confirmed, s:drain_learned())
     st.backend:clear()
     st.backend.len = 0
   end
+  chain_reset() -- 挿入終了: 連鎖は挿入セッションを跨がない
   st.popup_open = false
 end
 
@@ -474,6 +563,8 @@ function M.on_term_leave()
   end
   reset_completion()
   st.session:clear()
+  st.session:drain_learned()
+  chain_reset() -- terminal 離脱: 連鎖を断つ
   st.backend:clear()
   st.popup_open = false
   sync_converting_keymap() -- converting 限定キーが張られていれば外す
@@ -566,7 +657,10 @@ function M.on_register_word()
     if st.session:state() ~= "converting" then
       return
     end
-    finalize(st.session:commit_with_replacement(word))
+    local anchor_row, anchor_col = st.backend.row, st.backend.start_col
+    local text = st.session:commit_with_replacement(word)
+    chain_note(anchor_row, anchor_col, text, st.session:drain_learned())
+    finalize(text)
   end)
 end
 
@@ -634,6 +728,8 @@ function M.commit_completion(item)
     return
   end
   st.session:commit_completion(item)
+  -- 連鎖学習は内蔵補完限定(cmp 連携は対象外)。ここで記録された piece は破棄する。
+  st.session:drain_learned()
   st.backend:clear()
   st.backend.len = 0
   st.popup_open = false
@@ -698,6 +794,7 @@ local function switch_backend(new_backend)
   st.popup_open = false
   st.completion.items = nil
   st.completion.index = 0
+  chain_reset() -- 編集対象切替: 位置が連続でも連鎖を跨がない
   keymap.attach(st.backend.buf, st.cfg, handlers(), st.backend.keymap_mode)
 end
 
@@ -729,6 +826,7 @@ local function attach_cmdline_backend()
   st.popup_open = false
   st.completion.items = nil
   st.completion.index = 0
+  chain_reset() -- cmdline と buffer をまたぐ連鎖は位置意味が別なので断つ
   keymap.attach(st.backend.buf, st.cfg, handlers(), st.backend.keymap_mode)
 end
 
@@ -739,6 +837,10 @@ local function detach_cmdline_backend()
   st.backend:clear()
   st.converting_keys_attached = false
   st.completion_keys_attached = false
+  if st.session then
+    st.session:drain_learned() -- cmdline episode の piece は連鎖に回収しない
+  end
+  chain_reset()
   if st.saved_backend then
     st.backend = st.saved_backend
     st.saved_backend = nil
@@ -768,6 +870,7 @@ end
 
 local function enable()
   st.enabled = true
+  chain_reset()
   st.session = session.new(anthy, {
     ascii_toggle = st.cfg.keymaps.ascii_toggle,
     romaji_table = st.cfg.romaji.table,
@@ -777,6 +880,7 @@ end
 
 local function disable()
   local valid = st.backend and api.nvim_buf_is_valid(st.backend.buf)
+  chain_reset()
   -- 補完候補の選択中は選択候補で確定してから OFF(学習も走る)
   if valid and commit_completion_selection() then
     st.popup_open = false
@@ -784,7 +888,10 @@ local function disable()
   -- 未確定/変換中があれば確定してから OFF
   local s = st.session
   if s and valid and (s:state() == "converting" or s:preedit() ~= "") then
-    finalize(s:commit())
+    local anchor_row, anchor_col = st.backend.row, st.backend.start_col
+    local confirmed = s:commit()
+    chain_note(anchor_row, anchor_col, confirmed, s:drain_learned())
+    finalize(confirmed)
   end
   if valid then
     st.backend:clear()
