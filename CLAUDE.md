@@ -18,6 +18,8 @@ make test                                            # plenary.nvim で tests/vi
 nvim --headless --noplugin -u tests/minimal_init.lua \
   -c "PlenaryBustedFile tests/vime/session_spec.lua" # 単一ファイル実行
 nvim --headless -l tests/smoke.lua                   # 実 libanthy を使う E2E スモーク
+XDG_CONFIG_HOME=<dir> nvim --headless -l tests/eval/convert.lua \
+  tests/eval/corpus.txt <out.tsv>                    # 私的辞書の構成ごとの変換結果(ARCHITECTURE.md §9)
 ```
 
 - `tests/minimal_init.lua` が `HOME` と `XDG_CONFIG_HOME` を毎回 `tempname()` 配下へ差し替え、学習をテスト（spec ファイル＝別 nvim）ごとに隔離する。原 anthy は `$HOME/.anthy`、anthy-unicode は `$XDG_CONFIG_HOME/anthy`（anthy-unicode の HOME は `getpwuid` 由来で env では変えられないので XDG 隔離が必須）。テスト前提を変える際はここを必ず確認する。

@@ -539,7 +539,14 @@ make test                                            # tests/vime/ を一括実�
 nvim --headless --noplugin -u tests/minimal_init.lua \
   -c "PlenaryBustedFile tests/vime/session_spec.lua" # 単一ファイル実行
 nvim --headless -l tests/smoke.lua                   # 実 libanthy を使う E2E スモーク
+XDG_CONFIG_HOME=<dir> nvim --headless -l tests/eval/convert.lua \
+  tests/eval/corpus.txt <out.tsv>                    # 私的辞書の構成ごとの変換結果を出す(下記)
 ```
+
+**変換評価（`tests/eval/`）**: 私的辞書（SKK 取り込み・連鎖学習の登録）が変換を良くしたか壊したかを、テストとは別に手で測る道具。`make test` の対象外（`*_spec.lua` ではない）。
+- `convert.lua` は、`<dir>/anthy/private_words_default` に置いた私的辞書（anthy-unicode の場合。原 anthy は `HOME` 配下を読むので、temp にした `HOME` の下＝私的辞書なしになる）で `corpus.txt` の各行を変換し、`読み<TAB>先頭候補の連結<TAB>文節を | で区切った先頭候補` を出す。学習記録は読まない（`HOME` を temp にし、`<dir>` に `last-record*` を置かない）ので、辞書だけの差になる。
+- `corpus.txt` は助詞・助動詞を多く含む例文の読み（101 行）。構成を変えた 2 回の出力を行ごとに比べ（例: `paste a.tsv b.tsv | awk -F'\t' '$2!=$5'`）、変わった行を手で改善か悪化かに分ける。私的辞書なしの anthy との差分の件数は、改善と悪化の両方を数えるので、それ自体は良し悪しの指標にならない。
+- 実際の入力から作った読みはリポジトリに置かない（個人の入力文を含むため）。手元では `~/.local/share/vime/eval/` に置いて同じスクリプトで使う。
 
 | 層         | テスト対象                                           | 手法                                                |
 | ---------- | ----------------------------------------------------- | --------------------------------------------------- |
