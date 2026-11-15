@@ -1358,4 +1358,38 @@ describe("vime commit learning", function()
     vime.on_cancel()
     vime.on_cancel()
   end)
+
+  it("does not add a one-character reading to the private dictionary even when the conversion was guided", function()
+    -- 読み 1 文字の登録(て → 手 等)は freq 1000 で文中の助詞・語尾まで漢字に変えてしまう。
+    -- anthy の commit 学習でも次回の先頭は変わるため、変換結果ではなく私的辞書の行で確かめる。
+    local anthy = require("vime.anthy")
+    if not anthy.register_word("ぶいめいちもじ", "ignore") then
+      return -- 辞書登録 API が無い環境では登録の有無を観測できない(anthy_spec と同じ扱い)
+    end
+    local function dic_lines_of(yomi)
+      local lines = {}
+      for line in io.lines(anthy.private_dic_path()) do
+        if vim.startswith(line, yomi .. " ") then
+          lines[#lines + 1] = line
+        end
+      end
+      return lines
+    end
+    -- 観測手段の陽性対照: 登録した行がこの読み方で実際に見えること
+    assert.are.same({ "ぶいめいちもじ #T35*1000 ignore" }, dic_lines_of("ぶいめいちもじ"))
+    local before = dic_lines_of("て")
+    assert.are.same({}, before) -- 前提: 「て」の行がまだ無い(あると増加を検出できない)
+
+    local buf = reattach()
+    type_in("te")
+    vime.on_convert()
+    local default_text = line1(buf)
+    vime.on_next_candidate()
+    local guided_text = line1(buf)
+    vime.on_commit()
+    assert.are_not.equal(default_text, guided_text) -- 実際に既定から変えた(guided)確定であること
+    assert.are.equal(guided_text, line1(buf))
+
+    assert.are.same(before, dic_lines_of("て"))
+  end)
 end)

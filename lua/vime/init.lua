@@ -273,7 +273,10 @@ local function chain_note(row, start_col, text, parts)
     texts[#texts + 1] = p.text
   end
   local yomi, word = table.concat(yomis), table.concat(texts)
-  if yomi == "" or vim.str_utfindex(yomi) > CHAIN_MAX_YOMI_CHARS then
+  -- 読み 1 文字は登録しない: freq 1000 の「て → 手」「こ → 子」は文中の助詞・語尾まで
+  -- 置き換える(実測: この → 子の)。1 文字の候補選択は anthy の commit 学習で足りる。
+  local yomi_chars = vim.str_utfindex(yomi)
+  if yomi_chars < 2 or yomi_chars > CHAIN_MAX_YOMI_CHARS then
     return
   end
   local key = yomi .. "\1" .. word
