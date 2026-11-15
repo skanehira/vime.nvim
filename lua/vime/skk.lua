@@ -27,14 +27,22 @@ function M.decode(content)
   return decoded
 end
 
+-- SKK の助詞と同じ読みの見出し(例: を → 雄・尾)を名詞として入れると、
+-- anthy が文中の助詞を名詞と解釈して誤変換する(例: をしたりすること → 雄したりすること)。
+-- これらの読みのよく使う漢字は anthy の基本辞書が既に持つので、取り込まなくても候補は残る。
+local PARTICLE_YOMI = {}
+for _, p in ipairs({ "を", "は", "が", "に", "で", "と", "へ", "も", "や", "の", "か", "ね", "よ", "な", "さ", "ぞ", "わ" }) do
+  PARTICLE_YOMI[p] = true
+end
+
 -- decode 済み JISYO テーブルから anthy 登録用の {yomi, word} 配列を作る。
 -- okuri_nasi(名詞)のみ対象。okuri_ari(送りあり活用)は anthy 名詞辞書と噛み合わないため無視。
--- 数値テンプレート # を含む読みは丸ごとスキップする。stats={entries,skipped}。
+-- 数値テンプレート # を含む読みと、1 文字の助詞の読みは丸ごとスキップする。stats={entries,skipped}。
 function M.entries(decoded)
   local list = {}
   local stats = { entries = 0, skipped = 0 }
   for yomi, cands in pairs(decoded.okuri_nasi or {}) do
-    if yomi:find("#", 1, true) then
+    if yomi:find("#", 1, true) or PARTICLE_YOMI[yomi] then
       stats.skipped = stats.skipped + #cands
     else
       for _, cand in ipairs(cands) do

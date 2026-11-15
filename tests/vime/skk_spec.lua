@@ -51,6 +51,32 @@ describe("vime.skk.entries", function()
     assert.are.same({}, entries)
   end)
 
+  it("skips readings that are single-kana particles and counts their candidates as skipped", function()
+    local entries, stats = skk.entries({
+      okuri_ari = {},
+      okuri_nasi = {
+        ["を"] = { "雄", "尾" },
+        ["は"] = { "葉" },
+        ["ねこ"] = { "猫" },
+      },
+    })
+    assert.are.same({ { yomi = "ねこ", word = "猫" } }, entries)
+    assert.are.same({ entries = 1, skipped = 3 }, stats)
+  end)
+
+  for _, particle in ipairs({ "を", "は", "が", "に", "で", "と", "へ", "も", "や", "の", "か", "ね", "よ", "な", "さ", "ぞ", "わ" }) do
+    it("skips the particle reading " .. particle, function()
+      local entries, stats = skk.entries({ okuri_ari = {}, okuri_nasi = { [particle] = { "漢" } } })
+      assert.are.same({}, entries)
+      assert.are.same({ entries = 0, skipped = 1 }, stats)
+    end)
+  end
+
+  it("keeps a single-kana reading that is not a particle", function()
+    local entries = skk.entries({ okuri_ari = {}, okuri_nasi = { ["め"] = { "目" } } })
+    assert.are.same({ { yomi = "め", word = "目" } }, entries)
+  end)
+
   it("reports counts of imported and skipped candidates", function()
     local entries, stats = skk.entries({ okuri_ari = {}, okuri_nasi = { ["あい"] = { "愛", '(concat "x")' } } })
     assert.are.same({ { yomi = "あい", word = "愛" } }, entries)
